@@ -1,0 +1,210 @@
+package config_test
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"frameo/internal/config"
+	"frameo/internal/sdg"
+)
+
+func tempPath(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), "sub", "config.json")
+}
+
+func TestLoadCreatesAnIdentity(t *testing.T) {
+	path := tempPath(t)
+	c, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	id, err := c.Identity()
+	if err != nil {
+		t.Fatalf("Identity: %v", err)
+	}
+	if id.Public == (sdg.Key{}) {
+		t.Error("public key is empty")
+	}
+
+	// The file holds the key a frame is paired to, so it must not be readable
+	// by anyone else.
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := st.Mode().Perm(); perm != 0o600 {
+		t.Errorf("permissions are %o, want 600", perm)
+	}
+
+	again, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2, _ := again.Identity()
+	if id2.Private != id.Private {
+		t.Error("reloading produced a different identity")
+	}
+}
+
+func TestAddAndResolveFrames(t *testing.T) {
+	c, err := config.Load(tempPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var living, kitchen sdg.PeerID
+	living[0], kitchen[0] = 1, 2
+
+	if err := c.AddFrame("living", living); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.AddFrame("kitchen", kitchen); err != nil {
+		t.Fatal(err)
+	}
+
+	// The first frame paired becomes the default, so the common case of one
+	// frame needs no naming.
+	name, peer, err := c.Resolve("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "living" || peer != living {
+		t.Errorf("default resolved to %q/%s", name, peer)
+	}
+
+	if _, peer, err = c.Resolve("kitchen"); err != nil || peer != kitchen {
+		t.Errorf("Resolve(kitchen) = %s, %v", peer, err)
+	}
+	if _, _, err := c.Resolve("bedroom"); err == nil {
+		t.Error("want an error for an unknown frame")
+	}
+
+	if got := c.Names(); len(got) != 2 || got[0] != "kitchen" || got[1] != "living" {
+		t.Errorf("Names() = %v, want a sorted list", got)
+	}
+}
+
+func TestResolveWithNothingPaired(t *testing.T) {
+	c, err := config.Load(tempPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = c.Resolve("")
+	if err == nil {
+		t.Fatal("want an error when nothing is paired")
+	}
+	// The message has to tell someone what to do next.
+	if want := "frameo pair"; !contains(err.Error(), want) {
+		t.Errorf("error %q does not mention %q", err, want)
+	}
+}
+
+func TestAutoNaming(t *testing.T) {
+	c, err := config.Load(tempPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a, b sdg.PeerID
+	a[0], b[0] = 1, 2
+	if err := c.AddFrame("", a); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.AddFrame("", b); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Names(); len(got) != 2 || got[0] != "frame1" || got[1] != "frame2" {
+		t.Errorf("Names() = %v", got)
+	}
+}
+
+func TestRemoveFrameMovesTheDefault(t *testing.T) {
+	c, err := config.Load(tempPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a, b sdg.PeerID
+	a[0], b[0] = 1, 2
+	_ = c.AddFrame("one", a)
+	_ = c.AddFrame("two", b)
+
+	if err := c.RemoveFrame("one"); err != nil {
+		t.Fatal(err)
+	}
+	name, _, err := c.Resolve("")
+	if err != nil || name != "two" {
+		t.Errorf("after removing the default, Resolve gave %q, %v", name, err)
+	}
+	if err := c.RemoveFrame("gone"); err == nil {
+		t.Error("want an error removing a frame that is not there")
+	}
+}
+
+func TestPairingSurvivesReload(t *testing.T) {
+	path := tempPath(t)
+	c, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var peer sdg.PeerID
+	peer[0] = 0xab
+	if err := c.AddFrame("living", peer); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, got, err := again.Resolve("living")
+	if err != nil || got != peer {
+		t.Errorf("after reload, Resolve gave %s, %v", got, err)
+	}
+}
+
+func TestLoadRejectsCorruptFile(t *testing.T) {
+	dir := t.TempDir()
+
+	bad := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(bad, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(bad); err == nil {
+		t.Error("want an error for unreadable JSON")
+	}
+
+	shortKey := filepath.Join(dir, "short.json")
+	data, _ := json.Marshal(map[string]string{"private_key": "abcd"})
+	if err := os.WriteFile(shortKey, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(shortKey); err == nil {
+		t.Error("want an error for an unusable private key")
+	}
+}
+
+func TestDefaultPathHonoursOverride(t *testing.T) {
+	t.Setenv("FRAMEO_CONFIG", "/tmp/somewhere/frameo.json")
+	got, err := config.DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/tmp/somewhere/frameo.json" {
+		t.Errorf("DefaultPath() = %q", got)
+	}
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(sub) == 0 || indexOf(s, sub) >= 0)
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
+}

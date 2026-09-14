@@ -39,9 +39,9 @@ type Grid struct {
 	relayLn net.Listener
 
 	mu      sync.Mutex
-	devices map[string]*device // by peer id, lowercase hex
-	otps    map[string]*device // by the digits the grid is given
-	tunnels map[string]*device // by tunnel id
+	devices map[string]*device      // by peer id, lowercase hex
+	otps    map[string]*device      // by the digits the grid is given
+	tunnels map[string]tunnelTarget // by tunnel id
 	nextTun int
 	errs    []error
 	closed  bool
@@ -50,8 +50,18 @@ type Grid struct {
 }
 
 type device struct {
-	long    KeyPair
+	long KeyPair
+	// handler serves ordinary connections; pair serves pairing attempts. A
+	// real device does both over the same identity, and which one applies
+	// depends on how the caller reached it.
 	handler PeerHandler
+	pair    PeerHandler
+}
+
+// tunnelTarget records which of a device's two roles a reserved tunnel is for.
+type tunnelTarget struct {
+	dev     *device
+	pairing bool
 }
 
 // NewGrid starts a grid and its relay on the loopback interface.
@@ -64,7 +74,7 @@ func NewGrid() (*Grid, error) {
 		Long:    long,
 		devices: map[string]*device{},
 		otps:    map[string]*device{},
-		tunnels: map[string]*device{},
+		tunnels: map[string]tunnelTarget{},
 	}
 	if g.gridLn, err = net.Listen("tcp", "127.0.0.1:0"); err != nil {
 		return nil, err
@@ -107,15 +117,16 @@ func (g *Grid) AddDevice(h PeerHandler) (Key, error) {
 	return long.Public, nil
 }
 
-// AddPairing registers a device reachable by pairing code. The grid is only
-// given the code without its last three digits, matching the real protocol, so
-// that is the key used here.
-func (g *Grid) AddPairing(otpForGrid string, h PeerHandler) (Key, error) {
+// AddPairing registers a device reachable by pairing code, which afterwards
+// answers ordinary connections with connect. The grid is only given the code
+// without its last three digits, matching the real protocol, so that is the
+// key used here.
+func (g *Grid) AddPairing(otpForGrid string, pair, connect PeerHandler) (Key, error) {
 	long, err := NewKeyPair()
 	if err != nil {
 		return Key{}, err
 	}
-	d := &device{long: long, handler: h}
+	d := &device{long: long, handler: connect, pair: pair}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.otps[otpForGrid] = d
@@ -241,7 +252,7 @@ func (g *Grid) handleControl(t *Tunnel, data []byte) error {
 			d = g.devices[hex.EncodeToString(g.MisrouteTo[:])]
 		}
 		g.mu.Unlock()
-		return g.replyPeer(t, 11, req.GetId(), d)
+		return g.replyPeer(t, 11, req.GetId(), d, false)
 
 	case 32: // pair remote
 		var req control.PairRemote
@@ -251,14 +262,17 @@ func (g *Grid) handleControl(t *Tunnel, data []byte) error {
 		g.mu.Lock()
 		d := g.otps[req.GetOtp()]
 		g.mu.Unlock()
-		return g.replyPeer(t, 33, req.GetId(), d)
+		return g.replyPeer(t, 33, req.GetId(), d, true)
 
 	default:
 		return nil
 	}
 }
 
-func (g *Grid) replyPeer(t *Tunnel, msgType byte, id uint32, d *device) error {
+func (g *Grid) replyPeer(t *Tunnel, msgType byte, id uint32, d *device, pairing bool) error {
+	if d != nil && !pairing && d.handler == nil {
+		d = nil // registered for pairing only
+	}
 	if d == nil || g.RefuseCalls {
 		return g.sendControl(t, msgType, &control.PeerReply{
 			Id:     proto.Uint32(id),
@@ -269,7 +283,7 @@ func (g *Grid) replyPeer(t *Tunnel, msgType byte, id uint32, d *device) error {
 	g.mu.Lock()
 	g.nextTun++
 	tun := fmt.Sprintf("tunnel-%d", g.nextTun)
-	g.tunnels[tun] = d
+	g.tunnels[tun] = tunnelTarget{dev: d, pairing: pairing}
 	g.mu.Unlock()
 
 	return g.sendControl(t, msgType, &control.PeerReply{
@@ -346,10 +360,10 @@ func (g *Grid) handleRelay(nc net.Conn) {
 	}
 
 	g.mu.Lock()
-	d := g.tunnels[string(req.GetTunnelId())]
+	target := g.tunnels[string(req.GetTunnelId())]
 	delete(g.tunnels, string(req.GetTunnelId()))
 	g.mu.Unlock()
-	if d == nil {
+	if target.dev == nil {
 		pb, _ := proto.Marshal(&control.ForwardError{Code: proto.Uint32(3)})
 		_ = t.writeFrame(append([]byte{3}, pb...))
 		return
@@ -360,10 +374,16 @@ func (g *Grid) handleRelay(nc net.Conn) {
 		return
 	}
 
-	t.long = d.long
+	t.long = target.dev.long
 	if err := t.handshake(false); err != nil {
 		g.record(fmt.Errorf("relay: device handshake: %w", err))
 		return
 	}
-	d.handler(t)
+	h := target.dev.handler
+	if target.pairing {
+		h = target.dev.pair
+	}
+	if h != nil {
+		h(t)
+	}
 }

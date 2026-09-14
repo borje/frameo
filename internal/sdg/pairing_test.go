@@ -19,7 +19,7 @@ func TestPair(t *testing.T) {
 	deviceErrs := make(chan error, 1)
 	peerID, err := fake.AddPairing(fullCode[:len(fullCode)-3], sdgtest.PairingDevice(fullCode, func(err error) {
 		deviceErrs <- err
-	}))
+	}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestPair(t *testing.T) {
 func TestPairAcceptsFormattedCode(t *testing.T) {
 	fake := startGrid(t)
 	const fullCode = "12345678"
-	peerID, err := fake.AddPairing(fullCode[:5], sdgtest.PairingDevice(fullCode, nil))
+	peerID, err := fake.AddPairing(fullCode[:5], sdgtest.PairingDevice(fullCode, nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestPairWrongCode(t *testing.T) {
 	fake := startGrid(t)
 	// Both sides agree on the digits the grid routes by, but the device knows
 	// a different full code: exactly the shape of a mistyped last digit.
-	if _, err := fake.AddPairing("12345", sdgtest.PairingDevice("12345999", nil)); err != nil {
+	if _, err := fake.AddPairing("12345", sdgtest.PairingDevice("12345999", nil), nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -89,7 +89,7 @@ func TestPairWrongCode(t *testing.T) {
 func TestPairRejectsUnverifiableResult(t *testing.T) {
 	fake := startGrid(t)
 	const fullCode = "12345678"
-	if _, err := fake.AddPairing(fullCode[:5], sdgtest.WrongResultDevice(fullCode)); err != nil {
+	if _, err := fake.AddPairing(fullCode[:5], sdgtest.WrongResultDevice(fullCode), nil); err != nil {
 		t.Fatal(err)
 	}
 
