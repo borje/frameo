@@ -150,6 +150,10 @@ func (c *Client) send(ctx context.Context, msgType int32, m proto.Message) error
 // await waits for a message the predicate accepts. Anything else is logged and
 // dropped: a frame volunteers status messages at any time, and none of them
 // should derail an operation in progress.
+//
+// It waits only on the message queue, never on the connection's end directly,
+// so a reply that arrived just before the connection dropped is still seen
+// rather than lost to a race between the two.
 func (c *Client) await(ctx context.Context, what string, accept func(Frame) bool) (Frame, error) {
 	for {
 		select {
@@ -166,8 +170,6 @@ func (c *Client) await(ctx context.Context, what string, accept func(Frame) bool
 			c.log.Debug("ignoring an unrelated message while waiting", "for", what, "got", f.String())
 		case <-ctx.Done():
 			return Frame{}, fmt.Errorf("frameo: waiting for %s: %w", what, ctx.Err())
-		case <-c.done:
-			return Frame{}, fmt.Errorf("frameo: waiting for %s: %w", what, c.closedErr())
 		}
 	}
 }

@@ -3,6 +3,7 @@ package frameo
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,6 +46,12 @@ func (c *Client) SendPhoto(ctx context.Context, p Photo) (int64, error) {
 	}
 	if len(data) == 0 {
 		return 0, fmt.Errorf("frameo: %s is empty", p.Path)
+	}
+	// The frame is told the size in a 32-bit field and waits for exactly that
+	// many bytes, so a file it cannot describe must be refused here rather
+	// than announced as a smaller one.
+	if len(data) > math.MaxInt32 {
+		return 0, fmt.Errorf("frameo: %s is %d bytes, larger than the protocol can describe", p.Path, len(data))
 	}
 
 	taken := p.Taken

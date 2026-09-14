@@ -334,3 +334,40 @@ func TestConcurrentConnects(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestRecvDeliversMessagesSentBeforeClose covers the race between a message
+// arriving and the connection ending: both become ready at once, and the
+// message must still be delivered rather than replaced by a closed error.
+func TestRecvDeliversMessagesSentBeforeClose(t *testing.T) {
+	fake := startGrid(t)
+	peerID, err := fake.AddDevice(func(tun *sdgtest.Tunnel) {
+		if _, err := tun.Recv(); err != nil {
+			return
+		}
+		// Answer and hang up immediately.
+		_ = tun.Send([]byte("last words"))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := dial(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p, err := g.Connect(ctx, sdg.PeerID(peerID), "framedump")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	if err := p.Send(ctx, []byte("anything")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.Recv(ctx)
+	if err != nil {
+		t.Fatalf("Recv: %v", err)
+	}
+	if string(got) != "last words" {
+		t.Errorf("Recv = %q, want the message sent before the connection ended", got)
+	}
+}

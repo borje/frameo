@@ -57,6 +57,11 @@ func (p *Peer) Send(ctx context.Context, msg []byte) error {
 }
 
 // Recv returns the next message from the peer.
+//
+// It waits only on the message queue, never on the connection's end directly:
+// the reader closes the queue as it exits, so a message that arrived just
+// before the connection dropped is still delivered rather than lost to a race
+// between the two.
 func (p *Peer) Recv(ctx context.Context) ([]byte, error) {
 	select {
 	case msg, ok := <-p.recv:
@@ -66,17 +71,6 @@ func (p *Peer) Recv(ctx context.Context) ([]byte, error) {
 		return msg, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case <-p.done:
-		// Drain anything that arrived before the connection ended, so a
-		// message and the close that followed it are not reordered.
-		select {
-		case msg, ok := <-p.recv:
-			if ok {
-				return msg, nil
-			}
-		default:
-		}
-		return nil, p.closedErr()
 	}
 }
 
