@@ -38,38 +38,8 @@ Regenerating the protobuf bindings additionally needs `protoc` and
 `protoc-gen-go`, but the generated files are checked in, so an ordinary build
 does not.
 
-## Finishing the job
+## What is left
 
-Two things still need a real frame.
-
-**Pairing and sending have never run against one.** Everything up to the
-pairing exchange has: the client reaches Frameo's grid, completes the tunnel
-handshake, and gets a proper refusal when it asks to pair with a code that does
-not exist. The rest is exercised against a stand-in frame. To try the real
-thing:
-
-    frameo pair <the code on the frame>
-    frameo info
-    frameo send photo.jpg
-    go test -tags live ./internal/frameo -v          # more thorough, same path
-
-Add `-v` to any command to see the protocol exchange.
-
-**Listing and deleting need message numbers nobody has seen.** Every other
-number was recovered from the app's dispatch table, which covers only what the
-app receives. These two travel the other way, and it turns out the app never
-sends them at all: a decompile of v1.40.5 has no send site anywhere for
-`GetAllMediaMetaData`, `DeleteMedia`, or `ChangeMediaVisibility`. Whatever
-sends them lives in the frame's firmware, not the phone app, so there is
-nothing to read the numbers off of. Both commands refuse rather than send a
-message a frame might read as something else.
-
-For listing there is a guess worth trying. Requests are numbered one below
-their answers throughout the protocol, and the answer to a listing is 32, so:
-
-    frameo -type 31 list
-
-Deleting has no answering message to anchor a guess, and it changes what is on
-the frame, so this only gets settled by trying candidates against a real frame
-with `frameo raw <n>` (or capturing a real remote-manage session, if one can be
-found).
+Photos have not yet been sent to a real frame, and deleting needs a message
+number that was never observed. `NEXT-STEPS.md` lists what remains, what each
+piece is waiting on, and what to ask for.
