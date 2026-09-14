@@ -17,6 +17,7 @@ import (
 
 	"frameo/internal/config"
 	"frameo/internal/frameo"
+	"frameo/internal/frameo/pb"
 	"frameo/internal/mdns"
 	"frameo/internal/sdg"
 )
@@ -582,16 +583,86 @@ func cmdList(ctx context.Context, cfg *config.Config, o *options) error {
 		fmt.Fprintf(o.out, "%s holds no photos.\n", frame)
 		return nil
 	}
-	fmt.Fprintf(o.out, "%s holds %d item(s).\n", frame, len(items))
+	fmt.Fprintf(o.out, "%s holds %s.\n", frame, summarise(items))
+	fmt.Fprintf(o.out, "  %-20s  %-8s  %-16s  %-16s  %s\n", "id", "kind", "taken", "added", "visibility")
 	for _, m := range items {
-		when := time.UnixMilli(m.GetCaptureDate()).UTC().Format("2006-01-02")
 		shown := "hidden"
 		if m.GetIsVisible() {
 			shown = "shown"
 		}
-		fmt.Fprintf(o.out, "  %-12d %s  %s\n", m.GetMediaId(), when, shown)
+		fmt.Fprintf(o.out, "  %-20d  %-8s  %-16s  %-16s  %s\n",
+			m.GetMediaId(), mediaKind(m.GetType()),
+			listedTime(m.GetCaptureDate()), listedTime(m.GetReceiveDate()), shown)
 	}
 	return nil
+}
+
+// listedTime renders one of the two dates the listing carries. A frame that
+// reports none says nothing about the photo, which is not the same as saying
+// 1970, so it is left blank rather than formatted.
+//
+// The clock time comes with the date because it is what separates photos taken
+// on the same day, and the listing is otherwise in the frame's own order.
+func listedTime(ms int64) string {
+	if ms <= 0 {
+		return "-"
+	}
+	return time.UnixMilli(ms).UTC().Format("2006-01-02 15:04")
+}
+
+// mediaKind names what a listed item is. An unrecognised number is printed as
+// itself: the three known kinds came from a decompile, and a frame that returns
+// a fourth should say so rather than be filed under one of them.
+func mediaKind(t pb.MediaMetaData_Type) string {
+	switch t {
+	case pb.MediaMetaData_Type_MEDIAMETADATA_TYPE_PICTURE:
+		return "photo"
+	case pb.MediaMetaData_Type_MEDIAMETADATA_TYPE_VIDEO:
+		return "video"
+	case pb.MediaMetaData_Type_MEDIAMETADATA_TYPE_GREETING:
+		return "greeting"
+	default:
+		return strconv.FormatInt(int64(t), 10)
+	}
+}
+
+// summarise counts the listing by kind, and separately how much of it is
+// hidden, since a hidden photo is still one of its kind.
+func summarise(items []*pb.MediaMetaData) string {
+	byKind := map[string]int{}
+	var order []string
+	hidden := 0
+	for _, m := range items {
+		kind := mediaKind(m.GetType())
+		if byKind[kind] == 0 {
+			order = append(order, kind)
+		}
+		byKind[kind]++
+		if !m.GetIsVisible() {
+			hidden++
+		}
+	}
+	parts := make([]string, 0, len(order))
+	for _, kind := range order {
+		parts = append(parts, fmt.Sprintf("%d %s", byKind[kind], plural(kind, byKind[kind])))
+	}
+	// A frame holding one kind of thing is described by that kind alone:
+	// "86 photos" says everything "86 items: 86 photos" does.
+	out := strings.Join(parts, ", ")
+	if len(parts) > 1 {
+		out = fmt.Sprintf("%d %s: %s", len(items), plural("item", len(items)), out)
+	}
+	if hidden > 0 {
+		out += fmt.Sprintf("; %d hidden", hidden)
+	}
+	return out
+}
+
+func plural(word string, n int) string {
+	if n == 1 {
+		return word
+	}
+	return word + "s"
 }
 
 // cmdGet copies photos off the frame. A photo that cannot be fetched is
