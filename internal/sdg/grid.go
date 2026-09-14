@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -35,9 +34,12 @@ type Grid struct {
 	rtt      time.Duration
 }
 
-// Dial connects to the grid, trying the given servers in random order to
-// spread load, and returns once the connection is fully established. The
-// identity is this client's long-term key pair; frames are paired to it.
+// Dial connects to the grid, racing the given servers and keeping whichever
+// completes its handshake first, falling back to the rest if that one fails.
+// Racing rather than picking one (at random, or by a fixed preference) means
+// the nearest reachable server wins on its own, without needing to know
+// distances up front. It returns once the connection is fully established.
+// The identity is this client's long-term key pair; frames are paired to it.
 func Dial(ctx context.Context, servers []Endpoint, id *Identity, opt *Options) (*Grid, error) {
 	if len(servers) == 0 {
 		return nil, errors.New("sdg: no grid servers given")
@@ -47,23 +49,49 @@ func Dial(ctx context.Context, servers []Endpoint, id *Identity, opt *Options) (
 	}
 	o := opt.withDefaults()
 
-	shuffled := make([]Endpoint, len(servers))
-	copy(shuffled, servers)
-	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+	raceCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	results := make(chan dialResult, len(servers))
+	for _, ep := range servers {
+		go func(ep Endpoint) {
+			g, err := dialOne(raceCtx, ep, id, o)
+			results <- dialResult{ep, g, err}
+		}(ep)
+	}
 
 	var errs []error
-	for _, ep := range shuffled {
-		g, err := dialOne(ctx, ep, id, o)
-		if err == nil {
-			return g, nil
+	for received := 0; received < len(servers); received++ {
+		r := <-results
+		if r.err != nil {
+			o.Logger.Debug("grid server unusable", "server", r.ep.String(), "err", r.err)
+			errs = append(errs, fmt.Errorf("%s: %w", r.ep, r.err))
+			continue
 		}
-		o.Logger.Debug("grid server unusable", "server", ep.String(), "err", err)
-		errs = append(errs, fmt.Errorf("%s: %w", ep, err))
-		if ctx.Err() != nil {
-			break
-		}
+		// A winner is in hand: stop every other attempt, but keep listening
+		// in the background for any that were already past the point where
+		// cancellation could stop them, so their connections get closed
+		// instead of leaked.
+		cancel()
+		go closeLateWinners(results, len(servers)-received-1)
+		return r.g, nil
 	}
 	return nil, fmt.Errorf("sdg: could not reach the grid: %w", errors.Join(errs...))
+}
+
+// dialResult is one racer's outcome, reported on Dial's results channel.
+type dialResult struct {
+	ep  Endpoint
+	g   *Grid
+	err error
+}
+
+func closeLateWinners(results <-chan dialResult, n int) {
+	for range n {
+		if r := <-results; r.g != nil {
+			_ = r.g.Close()
+		}
+	}
 }
 
 func dialOne(ctx context.Context, ep Endpoint, id *Identity, o *Options) (*Grid, error) {
