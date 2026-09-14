@@ -212,13 +212,55 @@ const maxMediaBytes = 256 << 20
 // failure worth asking about again, so it is distinguishable from the rest.
 var ErrMediaTimeout = errors.New("frameo: the frame stopped sending the photo")
 
+// Size is the bound a fetch puts in GetMedia's width and height, and its value
+// is what goes on the wire: SizeFull is the zero the protocol reads as no bound
+// at all, and anything else is that many pixels. It is not the byte count
+// Media.size means -- that one describes what arrived, this one describes what
+// to ask for.
+//
+// It is not a scaling knob, however much width and height suggest one. The
+// frame this was measured against does not scale to order. It holds exactly two
+// copies of a photo -- the original, and a stored preview whose long side is
+// 570 pixels -- and the bound only chooses between them. Bounds of 64, 256,
+// 380, 480, 490, 496 and 499 all returned the byte-identical preview; 500, 511,
+// 512, 570, 571 and 1024 all returned the byte-identical original. The cutoff
+// fell in the same place for a photo of the other orientation, so it belongs to
+// the frame rather than to the photo. Asking for 380 does not get a 380 pixel
+// photo.
+//
+// Nothing in the reply says which copy arrived or how large it is: the header
+// carries a byte count, an extension and a capture date, and the listing
+// carries less than that. A caller that needs the pixels reads Download.Width
+// and Download.Height, which this client measures from the bytes themselves
+// because there is nowhere else to read them.
+type Size int32
+
+const (
+	// SizeFull asks for the photo as the frame stores it. It is the zero
+	// value, so a Fetch that says nothing about size gets the original.
+	SizeFull Size = 0
+
+	// SizePreview asks for the small stored copy, which is what to want when
+	// the point is a contact sheet rather than the photo: 27,394 bytes at
+	// 570x380 against 510,734 at 2880x1920, off the same photo.
+	//
+	// 256 is a bound and not a promise of 256 pixels; what comes back is
+	// whatever the frame stored. The number sits at about half the 500 pixel
+	// cutoff measured here, so it still selects the preview on a frame that
+	// divides the two somewhat lower, and it is an ordinary thumbnail bound
+	// rather than a degenerate one like 1, which a frame is likelier to have a
+	// special case for. A frame that divides them somewhere else entirely is
+	// reached with a plain Size(n).
+	SizePreview Size = 256
+)
+
 // Fetch describes one photo to read back from the frame.
 type Fetch struct {
 	// ID is the photo's id on the frame, as ListMedia reports it.
 	ID int64
-	// Bound asks the frame for a copy scaled to fit a square this many pixels
-	// on a side. Zero asks for the photo at full resolution.
-	Bound int32
+	// Size chooses which stored copy to ask for. Zero, the useful default, is
+	// SizeFull.
+	Size Size
 	// Attempts is how many times to ask before giving up. Zero means
 	// MediaAttempts.
 	Attempts int
@@ -243,6 +285,16 @@ type Download struct {
 	// Thumbnail is whatever followed the photo, described by Media.extra. It is
 	// empty when the frame appended none.
 	Thumbnail []byte
+	// Width and Height are the photo's pixel dimensions, read out of the bytes
+	// that arrived. The frame states them nowhere -- not in the header, not in
+	// the listing -- and the bound the request carried chose between stored
+	// copies rather than describing either of them, so measuring here is the
+	// only way a caller can report what it actually received.
+	//
+	// Both are zero when the format is not one this client can measure. That
+	// is not a failure: the photo arrived whole, and anything printing these
+	// has to be ready to say nothing.
+	Width, Height int
 }
 
 // Extension is the extension to file the photo under: what the frame reported,
@@ -279,6 +331,12 @@ func (c *Client) GetMedia(ctx context.Context, f Fetch) (*Download, error) {
 	case TypeChangeMediaVisibility:
 		return nil, fmt.Errorf("frameo: %d is the visibility number: a fetch sent on it would hide photo %d, not copy it",
 			f.Type, f.ID)
+	}
+	// A bound is a count of pixels, so there is nothing a negative one could
+	// ask for. Refusing here rather than sending it keeps a frame from having
+	// to decide what it means.
+	if f.Size < 0 {
+		return nil, fmt.Errorf("frameo: a bound of %d is not a number of pixels", f.Size)
 	}
 	attempts := f.Attempts
 	if attempts <= 0 {
@@ -322,7 +380,7 @@ func (c *Client) getMediaOnce(parent context.Context, f Fetch, retry bool) (*Dow
 		c.discardPending()
 	}
 
-	req := &pb.GetMedia{MediaId: f.ID, Width: f.Bound, Height: f.Bound}
+	req := &pb.GetMedia{MediaId: f.ID, Width: int32(f.Size), Height: int32(f.Size)}
 	if err := c.send(parent, msgType, req); err != nil {
 		return nil, err
 	}
@@ -445,6 +503,9 @@ func (c *Client) finish(header *pb.Media, acc []byte, size, want int, retry bool
 	if err := c.checkWhole(got, retry); err != nil {
 		return nil, err
 	}
+	// Measured rather than believed: the frame chose which copy to send and
+	// said nothing about it, so this is the only description of what arrived.
+	got.Width, got.Height = imageSize(got.Data)
 	return got, nil
 }
 

@@ -51,7 +51,9 @@ Options:
                      (default 2s)
   -caption <text>    caption to send with a photo
   -out <path>        where get writes: a file for one photo, a directory for many
-  -size <pixels>     ask get for a copy scaled to fit this square
+  -size <which>      which stored copy get asks for: full, preview, or a
+                     pixel bound for a frame that divides them elsewhere
+                     (default full)
   -wait <dur>        how long get waits for one photo before asking again (default 6s)
   -fit               fit the whole photo on screen instead of cropping to fill
   -single-segment    send each photo as one message instead of a series
@@ -72,6 +74,17 @@ order the photos were taken. A frame that reports no capture date leaves the
 photo named by its id alone. get keeps going past a photo it cannot fetch, so
 one missing id does not cost the rest.
 
+The frame does not scale a photo to order. It keeps two copies of each -- the
+original, and a preview whose long side is 570 pixels -- and the size asked for
+only chooses between them. -size preview asks for the small one and -size full
+for the original; a bare number is sent to the frame as it stands, for a frame
+that draws the line somewhere other than this one does. A preview is saved as
+<date>_<time>_<id>_preview.<extension> and a bare number as ..._<n>px, so the
+copies of one photo sit beside each other instead of the second overwriting the
+first. get prints the dimensions of what actually arrived, which is the only
+place they are ever stated: the frame does not say, and neither does the
+listing.
+
 A frame on the same network is reached directly, which skips the relay
 entirely and is much faster for a large photo. It is found by the name it
 advertises over mDNS; discover shows what that finds. A network that blocks
@@ -88,7 +101,8 @@ type options struct {
 	frame         string
 	caption       string
 	outPath       string
-	size          int
+	sizeFlag      string
+	size          photoSize
 	wait          time.Duration
 	fit           bool
 	singleSegment bool
@@ -115,7 +129,7 @@ func run(args []string, stdout io.Writer) error {
 	fs.StringVar(&o.frame, "frame", "", "which paired frame to use")
 	fs.StringVar(&o.caption, "caption", "", "caption to send with a photo")
 	fs.StringVar(&o.outPath, "out", "", "where get writes")
-	fs.IntVar(&o.size, "size", 0, "ask get for a copy scaled to fit this square")
+	fs.StringVar(&o.sizeFlag, "size", "", "which stored copy get asks for")
 	fs.DurationVar(&o.wait, "wait", 0, "how long get waits for one photo before asking again")
 	fs.BoolVar(&o.fit, "fit", false, "fit the whole photo on screen")
 	fs.BoolVar(&o.singleSegment, "single-segment", false, "send each photo as one message")
@@ -139,6 +153,10 @@ func run(args []string, stdout io.Writer) error {
 	// wrong-route-without-saying-so that -net is checked to prevent.
 	if o.discover <= 0 {
 		return fmt.Errorf("-discover %v: expected a positive duration", o.discover)
+	}
+	var err error
+	if o.size, err = parseSize(o.sizeFlag); err != nil {
+		return err
 	}
 
 	args = fs.Args()
@@ -709,10 +727,11 @@ func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) 
 	}
 
 	var failed int
+	var noted bool
 	for _, id := range ids {
 		d, err := c.GetMedia(ctx, frameo.Fetch{
 			ID:      id,
-			Bound:   int32(o.size),
+			Size:    o.size.bound,
 			Timeout: o.wait,
 		})
 		if err != nil {
@@ -720,9 +739,20 @@ func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) 
 			failed++
 			continue
 		}
+		// Said once, on the first photo that shows it. A bare number is the
+		// one form of -size that implies a pixel count the frame never
+		// promised, and the dimensions alone do not explain themselves:
+		// someone who asks for 256 and reads 570x380 concludes the flag is
+		// broken rather than that the frame chose a stored copy.
+		if !noted && quantised(o.size, d) {
+			noted = true
+			fmt.Fprintf(o.out, "Note: -size %d asked for a %d pixel bound and the frame sent %dx%d. "+
+				"It chooses between two stored copies rather than scaling; -size preview and -size full name them.\n",
+				o.size.bound, o.size.bound, d.Width, d.Height)
+		}
 		path := file
 		if path == "" {
-			path = filepath.Join(dir, photoFileName(id, d.Media.GetCaptureDate(), d.Extension()))
+			path = filepath.Join(dir, photoFileName(id, d.Media.GetCaptureDate(), o.size.variant, d.Extension()))
 		}
 		// A file that cannot be written is reported like a photo that cannot be
 		// fetched, for the same reason: the rest of the batch is still worth
@@ -732,7 +762,7 @@ func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) 
 			failed++
 			continue
 		}
-		fmt.Fprintf(o.out, "Saved %s from %s, %d bytes.\n", path, frame, len(d.Data))
+		fmt.Fprintf(o.out, "Saved %s from %s%s, %d bytes.\n", path, frame, pixels(d), len(d.Data))
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d of %d photo(s) could not be fetched", failed, len(ids))
@@ -740,8 +770,34 @@ func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) 
 	return nil
 }
 
+// pixels describes what arrived, for the line get prints, and says nothing at
+// all when the format is not one this client can measure. It carries its own
+// leading comma so the sentence closes up around it rather than leaving a gap.
+func pixels(d *frameo.Download) string {
+	if d.Width == 0 || d.Height == 0 {
+		return ""
+	}
+	return fmt.Sprintf(", %dx%d", d.Width, d.Height)
+}
+
+// quantised reports whether the frame answered with a copy of its own choosing
+// rather than with the bound it was asked for, which is the thing a bare -size
+// hides: the request names a number of pixels and the frame picks a stored
+// file.
+//
+// Only the measured dimensions settle it, so a photo that could not be
+// measured says nothing -- and, as much to the point, neither does a frame that
+// really did scale to the bound, which is what keeps this from lecturing a
+// frame it does not apply to.
+func quantised(size photoSize, d *frameo.Download) bool {
+	if !size.probe || d.Width == 0 || d.Height == 0 {
+		return false
+	}
+	return frameo.Size(max(d.Width, d.Height)) != size.bound
+}
+
 // photoFileName is what one photo is saved as: when it was taken, then the
-// frame's own id for it, then the format.
+// frame's own id for it, then which copy it is, then the format.
 //
 // The date leads so that a directory of photos sorts into the order they were
 // taken, which is the order anyone looking through them wants. It is in UTC,
@@ -752,7 +808,15 @@ func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) 
 //
 // A frame that reports no capture date leaves the photo named by its id alone.
 // A date of zero would say 1970 and mean nothing.
-func photoFileName(id, captureDate int64, ext string) string {
+//
+// The variant is there because one photo is two files. A frame keeps a preview
+// alongside the original, and both come back under the same id with the same
+// capture date, so without it a second fetch silently overwrites the first in
+// the same directory. It names what was asked for rather than what arrived,
+// because the reply says nothing about which copy it is: _preview and _256px
+// are both records of a request, and the dimensions get prints are the record
+// of the answer.
+func photoFileName(id, captureDate int64, variant, ext string) string {
 	name := strconv.FormatInt(id, 10)
 	// The frame files photos under its own identifiers, which the protocol
 	// allows to be negative, and a file whose name begins with a dash is read
@@ -764,6 +828,9 @@ func photoFileName(id, captureDate int64, ext string) string {
 	}
 	if captureDate > 0 {
 		name = time.UnixMilli(captureDate).UTC().Format("2006-01-02_150405") + "_" + name
+	}
+	if variant != "" {
+		name += "_" + variant
 	}
 	return name + "." + ext
 }
@@ -846,6 +913,50 @@ func cmdSetVisible(ctx context.Context, cfg *config.Config, o *options, args []s
 	}
 	fmt.Fprintf(o.out, "%s %d item(s) on %s.\n", shown, len(ids), frame)
 	return nil
+}
+
+// photoSize is what -size settled on: the bound to send, and how the copy it
+// brings back is told apart from the others on disk.
+type photoSize struct {
+	// bound is what goes in the request.
+	bound frameo.Size
+	// variant is the word worked into a downloaded photo's name, or empty for
+	// the original, which keeps the name it has always had.
+	variant string
+	// probe says the bound was typed as a bare number, which is the one case
+	// where nobody -- not the person who typed it, not this program, not the
+	// reply -- can say in advance which copy will come back.
+	probe bool
+}
+
+// parseSize reads -size. full and preview name the two copies a frame keeps; a
+// bare number is a bound sent as it stands, which is how to find where a frame
+// that divides them somewhere else puts its own boundary.
+//
+// A bare number gets a name of its own on disk, taken from the request rather
+// than from what arrives. The reply does not say which copy it is, so _256px
+// records the only thing actually known in advance, and two runs asking
+// different things can never write the same file. What arrived is reported in
+// pixels on the line get prints, which is where the truth about the bytes
+// belongs.
+func parseSize(s string) (photoSize, error) {
+	switch s {
+	case "", "full":
+		return photoSize{}, nil
+	case "preview":
+		return photoSize{bound: frameo.SizePreview, variant: "preview"}, nil
+	}
+	n, err := strconv.ParseInt(s, 10, 32)
+	if err != nil || n < 0 {
+		return photoSize{}, fmt.Errorf("-size %q: expected full, preview or a number of pixels", s)
+	}
+	// Zero is the very same request full makes -- the protocol reads it as no
+	// bound at all -- so giving it a name of its own would file two identical
+	// copies under different names.
+	if n == 0 {
+		return photoSize{}, nil
+	}
+	return photoSize{bound: frameo.Size(n), variant: fmt.Sprintf("%dpx", n), probe: true}, nil
 }
 
 func parseIDs(args []string) ([]int64, error) {

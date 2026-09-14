@@ -89,18 +89,32 @@ type Frame struct {
 	// SizeDelta is added to the byte count the header declares, so a client can
 	// be shown a count that does not match what arrives.
 	SizeDelta int
+	// PreviewBelow is where this frame stops handing out the preview and
+	// starts handing out the photo. A real frame does not scale to order: it
+	// keeps two copies and the bound only chooses between them, so a bound
+	// from 1 to PreviewBelow-1 gets Servable.Preview and a bound of zero, or
+	// of PreviewBelow or more, gets Servable.Data. Zero leaves the frame
+	// indifferent to the bound, which is what every test written before the
+	// two copies were discovered expects.
+	PreviewBelow int32
 
-	mu        sync.Mutex
-	deleted   []int64
-	photos    []Photo
-	partial   map[int64]*transfer
-	multi     map[int64]*multipart
-	unknown   []int32
-	segments  int
-	requests  []*pb.GetMedia
-	stalled   []byte
-	stalledID int64
-	nextMulti int64
+	mu       sync.Mutex
+	deleted  []int64
+	photos   []Photo
+	partial  map[int64]*transfer
+	multi    map[int64]*multipart
+	unknown  []int32
+	segments int
+	requests []*pb.GetMedia
+	// stalled is what an abandoned transfer still owes; stalledHeader and
+	// stalledStream are the header it announced and the whole reply it would
+	// have sent. The last two are kept rather than looked up again because the
+	// frame may have chosen the preview, and rebuilding from Servable.Data
+	// would flush the wrong copy back at a client that is already confused.
+	stalled       []byte
+	stalledHeader *pb.Media
+	stalledStream []byte
+	nextMulti     int64
 }
 
 // Servable is a photo this frame will hand out when asked for it.
@@ -110,6 +124,13 @@ type Servable struct {
 	CaptureDate        int64  // epoch millis; zero means the frame reports none
 	Thumbnail          []byte // appended after the photo and described in extra
 	ThumbnailExtension string
+	// Preview is the smaller stored copy, handed out for a bound this frame
+	// reads as a request for one. Empty means this photo has a single copy,
+	// which is served whatever the bound says.
+	Preview []byte
+	// PreviewExtension is the preview's format. Empty means the same as the
+	// photo's, which is the ordinary case.
+	PreviewExtension string
 }
 
 type transfer struct {
@@ -349,9 +370,9 @@ func (f *Frame) serveMedia(rw MessageRW, req *pb.GetMedia) error {
 	f.requests = append(f.requests, req)
 	n := len(f.requests)
 	item, ok := f.Servable[req.GetMediaId()]
-	tail, tailID := f.stalled, f.stalledID
+	tail, oldHeader, oldStream := f.stalled, f.stalledHeader, f.stalledStream
 	if f.FlushStalled {
-		f.stalled, f.stalledID = nil, 0
+		f.stalled, f.stalledHeader, f.stalledStream = nil, nil, nil
 	} else {
 		tail = nil
 	}
@@ -362,12 +383,12 @@ func (f *Frame) serveMedia(rw MessageRW, req *pb.GetMedia) error {
 	if len(tail) > 0 {
 		if f.ResendStalledHeader {
 			// A whole reply, not the remainder: a client that took it for the
-			// answer would find the byte count adding up exactly.
-			old := f.Servable[tailID]
-			if err := f.sendInner(rw, 4, f.headerFor(tailID)); err != nil {
+			// answer would find the byte count adding up exactly. It is the
+			// reply that was abandoned, down to which copy it was of.
+			if err := f.sendInner(rw, 4, oldHeader); err != nil {
 				return err
 			}
-			tail = append(append([]byte(nil), old.Data...), old.Thumbnail...)
+			tail = oldStream
 		}
 		if err := f.sendSegments(rw, tail); err != nil {
 			return err
@@ -382,11 +403,15 @@ func (f *Frame) serveMedia(rw MessageRW, req *pb.GetMedia) error {
 		return f.sendInner(rw, 4, &pb.Media{Id: req.GetMediaId(), Error: &pb.Error{Code: code}})
 	}
 
-	if err := f.sendInner(rw, 4, f.headerFor(req.GetMediaId())); err != nil {
+	// Which copy the bound asks for is settled once, here, so the header, the
+	// bytes and anything kept for a later flush all describe the same one.
+	data, ext := f.copyFor(item, req.GetWidth())
+	header := f.headerFor(req.GetMediaId(), data, ext)
+	if err := f.sendInner(rw, 4, header); err != nil {
 		return err
 	}
 
-	stream := append([]byte(nil), item.Data...)
+	stream := append([]byte(nil), data...)
 	if !f.WithholdThumbnail {
 		stream = append(stream, item.Thumbnail...)
 	}
@@ -394,27 +419,46 @@ func (f *Frame) serveMedia(rw MessageRW, req *pb.GetMedia) error {
 		if err := f.sendSegments(rw, stream[:cut]); err != nil {
 			return err
 		}
-		if err := f.sendInner(rw, 4, f.headerFor(req.GetMediaId())); err != nil {
+		if err := f.sendInner(rw, 4, header); err != nil {
 			return err
 		}
 	}
 	if n <= f.StallFirst {
 		cut := min(f.StallAfter, len(stream))
 		f.mu.Lock()
-		f.stalled, f.stalledID = stream[cut:], req.GetMediaId()
+		f.stalled, f.stalledHeader, f.stalledStream = stream[cut:], header, stream
 		f.mu.Unlock()
 		return f.sendSegments(rw, stream[:cut])
 	}
 	return f.sendSegments(rw, stream)
 }
 
+// copyFor picks the stored copy a bound is asking for.
+//
+// A real frame does not scale to order. It keeps the photo and a smaller
+// preview beside it, and the bound in the request only chooses between them --
+// measured on a real frame, every bound from 1 to 499 fetched the identical
+// preview and every one from 500 up the identical original. Zero is not a
+// small bound but the absence of one, which is how the original is asked for.
+func (f *Frame) copyFor(item Servable, bound int32) (data []byte, ext string) {
+	if f.PreviewBelow <= 0 || len(item.Preview) == 0 || bound <= 0 || bound >= f.PreviewBelow {
+		return item.Data, item.Extension
+	}
+	if ext = item.PreviewExtension; ext == "" {
+		ext = item.Extension
+	}
+	return item.Preview, ext
+}
+
 // headerFor describes one servable photo the way a real frame announces it.
-func (f *Frame) headerFor(id int64) *pb.Media {
+// The copy is passed in rather than looked up, because a frame that has chosen
+// the preview must announce the preview's byte count and not the photo's.
+func (f *Frame) headerFor(id int64, data []byte, ext string) *pb.Media {
 	item := f.Servable[id]
 	header := &pb.Media{
 		Id:            id,
-		Size:          int32(len(item.Data) + f.SizeDelta),
-		FileExtension: item.Extension,
+		Size:          int32(len(data) + f.SizeDelta),
+		FileExtension: ext,
 		Type:          pb.Media_PICTURE,
 		CaptureDate:   item.CaptureDate,
 	}

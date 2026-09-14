@@ -67,7 +67,12 @@ const (
 	// GETMEDIA.md could only infer -- the frame echoes the id it was asked
 	// for, dates the photo, and describes no extra streams at all, so a
 	// full-resolution reply does not append the thumbnail. Asking for a scaled
-	// copy behaves the same way.
+	// copy is the same in that respect: one stream, no extras.
+	//
+	// It is not the same in any other respect, and the width and height in the
+	// request are not the scaling knob they look like. The frame holds two
+	// copies of a photo and the bound only chooses between them, at a boundary
+	// measured at exactly 500. Size records what that cost to find out.
 	TypeGetMedia = 23
 )
 

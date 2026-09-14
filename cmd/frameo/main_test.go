@@ -466,22 +466,29 @@ func TestPhotoFileName(t *testing.T) {
 	const taken = 1718289052000
 
 	for _, c := range []struct {
-		id    int64
-		taken int64
-		want  string
+		id      int64
+		taken   int64
+		variant string
+		want    string
 	}{
-		{111, taken, "2024-06-13_143052_111.jpg"},
+		{111, taken, "", "2024-06-13_143052_111.jpg"},
 		// A frame that reports no capture date leaves the photo on its id.
-		{111, 0, "111.jpg"},
-		{0, 0, "0.jpg"},
+		{111, 0, "", "111.jpg"},
+		{0, 0, "", "0.jpg"},
 		// A leading dash would be read as an option by most of the tools that
 		// go on to handle the file.
-		{-111, 0, "n111.jpg"},
-		{-9223372036854775808, 0, "n9223372036854775808.jpg"},
-		{-111, taken, "2024-06-13_143052_n111.jpg"},
+		{-111, 0, "", "n111.jpg"},
+		{-9223372036854775808, 0, "", "n9223372036854775808.jpg"},
+		{-111, taken, "", "2024-06-13_143052_n111.jpg"},
+		// The copy is named last, so the date still leads and a directory
+		// still sorts into the order the photos were taken, with each photo's
+		// two copies next to each other.
+		{111, taken, "preview", "2024-06-13_143052_111_preview.jpg"},
+		{111, 0, "256px", "111_256px.jpg"},
+		{-111, taken, "preview", "2024-06-13_143052_n111_preview.jpg"},
 	} {
-		if got := photoFileName(c.id, c.taken, "jpg"); got != c.want {
-			t.Errorf("photoFileName(%d, %d) = %q, want %q", c.id, c.taken, got, c.want)
+		if got := photoFileName(c.id, c.taken, c.variant, "jpg"); got != c.want {
+			t.Errorf("photoFileName(%d, %d, %q) = %q, want %q", c.id, c.taken, c.variant, got, c.want)
 		}
 	}
 }
@@ -571,5 +578,218 @@ func TestNamedServerMeansTheRelay(t *testing.T) {
 	}
 	if !tryLocally(&options{network: networkAuto}) {
 		t.Error("the default did not search the local network")
+	}
+}
+
+// TestSizeFlagIsChecked keeps a -size nobody can act on from costing a
+// connection, the way -net and -discover are checked.
+func TestSizeFlagIsChecked(t *testing.T) {
+	withConfig(t)
+	for _, bad := range []string{"huge", "-5", "12.5", "thumbnail", "999999999999"} {
+		_, err := runCLI(t, "-size", bad, "info")
+		if err == nil || !strings.Contains(err.Error(), "-size") {
+			t.Errorf("-size %s: err = %v, want it to name the unusable value", bad, err)
+		}
+	}
+	// The forms that mean something must not be caught by the same check.
+	for _, good := range []string{"full", "preview", "0", "256", "512"} {
+		if _, err := runCLI(t, "-size", good); err == nil || strings.Contains(err.Error(), "-size") {
+			t.Errorf("-size %s was rejected: %v", good, err)
+		}
+	}
+}
+
+// TestGetPreviewAndFullCoexist is the collision this whole change exists to
+// fix. One photo is two files, both under the same id and the same capture
+// date, so before the copy was named the second fetch quietly replaced the
+// first.
+func TestGetPreviewAndFullCoexist(t *testing.T) {
+	withConfig(t)
+	frame := frameotest.New()
+	frame.GetMediaType = frameo.TypeGetMedia
+	frame.PreviewBelow = 500
+	photo := frameotest.WebPExtended(2880, 1920, 40000)
+	preview := frameotest.WebP(570, 380, 5000)
+	frame.Servable = map[int64]frameotest.Servable{
+		111: {Data: photo, Extension: "webp", Preview: preview},
+	}
+	server, code := startFakeFrame(t, frame)
+	if _, err := runCLI(t, "-server", server, "pair", code); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	full, err := runCLI(t, "-server", server, "-out", dir, "get", "111")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	small, err := runCLI(t, "-server", server, "-size", "preview", "-out", dir, "get", "111")
+	if err != nil {
+		t.Fatalf("get -size preview: %v", err)
+	}
+
+	for _, c := range []struct {
+		name string
+		want []byte
+	}{
+		{"111.webp", photo},
+		{"111_preview.webp", preview},
+	} {
+		got, err := os.ReadFile(filepath.Join(dir, c.name))
+		if err != nil {
+			t.Fatalf("reading %s: %v\n%s%s", c.name, err, full, small)
+		}
+		if !bytes.Equal(got, c.want) {
+			t.Errorf("%s holds %d bytes, want the other copy's %d", c.name, len(got), len(c.want))
+		}
+	}
+
+	// The dimensions are read off the photo, since the frame states them
+	// nowhere, and are the only place the two copies are told apart by size.
+	if !strings.Contains(full, "2880x1920") {
+		t.Errorf("the full copy did not report its dimensions:\n%s", full)
+	}
+	if !strings.Contains(small, "570x380") {
+		t.Errorf("the preview did not report its dimensions:\n%s", small)
+	}
+}
+
+// TestGetNamesANumericSizeByWhatWasAsked covers the one case where nobody can
+// say in advance which copy will arrive: the name records the request, and the
+// printed line records what came back.
+func TestGetNamesANumericSizeByWhatWasAsked(t *testing.T) {
+	withConfig(t)
+	frame := frameotest.New()
+	frame.GetMediaType = frameo.TypeGetMedia
+	frame.PreviewBelow = 500
+	photo := frameotest.WebPExtended(2880, 1920, 20000)
+	preview := frameotest.WebP(570, 380, 5000)
+	frame.Servable = map[int64]frameotest.Servable{
+		111: {Data: photo, Extension: "webp", Preview: preview},
+	}
+	server, code := startFakeFrame(t, frame)
+	if _, err := runCLI(t, "-server", server, "pair", code); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	if _, err := runCLI(t, "-server", server, "-size", "256", "-out", dir, "get", "111"); err != nil {
+		t.Fatalf("get -size 256: %v", err)
+	}
+	// Named for the 256 that was asked for, holding the 570x380 that arrived.
+	got, err := os.ReadFile(filepath.Join(dir, "111_256px.webp"))
+	if err != nil {
+		t.Fatalf("reading the file a numeric -size wrote: %v", err)
+	}
+	if !bytes.Equal(got, preview) {
+		t.Error("111_256px.webp does not hold the copy the frame chose")
+	}
+
+	// A bound of zero is the identical request full makes, so it must not get
+	// a name of its own: two names for one copy is the collision in reverse.
+	if _, err := runCLI(t, "-server", server, "-size", "0", "-out", dir, "get", "111"); err != nil {
+		t.Fatalf("get -size 0: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "111.webp")); err != nil {
+		t.Errorf("-size 0 did not write the plain name: %v", err)
+	}
+}
+
+// TestGetSaysNothingAboutDimensionsItCannotRead is the other half of the
+// policy: measuring is for one line of output, so a format this client cannot
+// parse costs the dimensions and nothing else.
+func TestGetSaysNothingAboutDimensionsItCannotRead(t *testing.T) {
+	withConfig(t)
+	frame := frameotest.New()
+	frame.GetMediaType = frameo.TypeGetMedia
+	frame.Servable = map[int64]frameotest.Servable{
+		111: {Data: jpegBytes(5000, 3), Extension: "jpg"},
+	}
+	server, code := startFakeFrame(t, frame)
+	if _, err := runCLI(t, "-server", server, "pair", code); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	out, err := runCLI(t, "-server", server, "-out", dir, "get", "111")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !strings.Contains(out, "5000 bytes") {
+		t.Errorf("the byte count is missing:\n%s", out)
+	}
+	if strings.Contains(out, "x0") || strings.Contains(out, "0x") {
+		t.Errorf("dimensions were reported for a photo that could not be measured:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "111.jpg")); err != nil {
+		t.Errorf("the photo was not saved: %v", err)
+	}
+}
+
+// TestGetNotesAFrameThatQuantised guards the one-per-run rule. The note
+// explains a number that otherwise looks like a bug -- asking for 256 and
+// getting 570x380 -- but a batch that said it once per photo would say it
+// eighty-six times to make one point.
+func TestGetNotesAFrameThatQuantised(t *testing.T) {
+	withConfig(t)
+	frame := frameotest.New()
+	frame.GetMediaType = frameo.TypeGetMedia
+	frame.PreviewBelow = 500
+	preview := frameotest.WebP(570, 380, 5000)
+	frame.Servable = map[int64]frameotest.Servable{
+		111: {Data: frameotest.WebPExtended(2880, 1920, 20000), Extension: "webp", Preview: preview},
+		222: {Data: frameotest.WebPExtended(1620, 1080, 20000), Extension: "webp", Preview: preview},
+	}
+	server, code := startFakeFrame(t, frame)
+	if _, err := runCLI(t, "-server", server, "pair", code); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runCLI(t, "-server", server, "-size", "256", "-out", t.TempDir(), "get", "111", "222")
+	if err != nil {
+		t.Fatalf("get -size 256: %v", err)
+	}
+	if n := strings.Count(out, "Note:"); n != 1 {
+		t.Errorf("the note was printed %d times over two photos, want once:\n%s", n, out)
+	}
+	if !strings.Contains(out, "570x380") {
+		t.Errorf("the note does not say what actually arrived:\n%s", out)
+	}
+
+	// The named sizes promise no pixel count, so there is nothing to correct.
+	for _, size := range []string{"preview", "full"} {
+		out, err := runCLI(t, "-server", server, "-size", size, "-out", t.TempDir(), "get", "111")
+		if err != nil {
+			t.Fatalf("get -size %s: %v", size, err)
+		}
+		if strings.Contains(out, "Note:") {
+			t.Errorf("-size %s was lectured about a bound it never named:\n%s", size, out)
+		}
+	}
+}
+
+// TestGetSaysNothingWhenTheFrameHonouredTheBound is what keeps the note from
+// being a nag. A frame that really does scale to the size asked for has
+// nothing to explain, and this client must not tell it otherwise.
+func TestGetSaysNothingWhenTheFrameHonouredTheBound(t *testing.T) {
+	withConfig(t)
+	frame := frameotest.New()
+	frame.GetMediaType = frameo.TypeGetMedia
+	// No preview and no cutoff: this frame simply hands over a photo that is
+	// already exactly the size that was asked for.
+	frame.Servable = map[int64]frameotest.Servable{
+		111: {Data: frameotest.WebP(256, 170, 5000), Extension: "webp"},
+	}
+	server, code := startFakeFrame(t, frame)
+	if _, err := runCLI(t, "-server", server, "pair", code); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runCLI(t, "-server", server, "-size", "256", "-out", t.TempDir(), "get", "111")
+	if err != nil {
+		t.Fatalf("get -size 256: %v", err)
+	}
+	if strings.Contains(out, "Note:") {
+		t.Errorf("a frame that honoured the bound was told it had not:\n%s", out)
 	}
 }

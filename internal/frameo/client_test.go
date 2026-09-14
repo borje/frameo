@@ -601,19 +601,120 @@ func TestGetMediaThumbnail(t *testing.T) {
 	}
 }
 
-func TestGetMediaScaled(t *testing.T) {
-	frame := servingFrame(7, photoBytes(5000))
+// TestGetMediaAsksForTheSizeItWasGiven checks that a bound reaches the wire
+// untouched, in both width and height. The client must not interpret the
+// number: which copy it selects is the frame's decision, and a frame that
+// divides them somewhere other than this one did is reached by passing a bare
+// number through.
+func TestGetMediaAsksForTheSizeItWasGiven(t *testing.T) {
+	for _, want := range []frameo.Size{frameo.SizeFull, frameo.SizePreview, 499, 500, 1024} {
+		frame := servingFrame(7, photoBytes(5000))
+		c := setup(t, frame)
+
+		if _, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7, Size: want}); err != nil {
+			t.Fatalf("GetMedia at %d: %v", want, err)
+		}
+		reqs := frame.Requests()
+		if len(reqs) != 1 {
+			t.Fatalf("the frame saw %d requests, want 1", len(reqs))
+		}
+		if got := frameo.Size(reqs[0].GetWidth()); got != want {
+			t.Errorf("asked for a width of %d, want %d", got, want)
+		}
+		if got := frameo.Size(reqs[0].GetHeight()); got != want {
+			t.Errorf("asked for a height of %d, want %d", got, want)
+		}
+	}
+}
+
+// TestGetMediaPreviewIsADifferentCopy is what no test could reach before: the
+// frame keeps two copies of a photo and the bound chooses between them, so the
+// bytes that come back differ by which was asked for. Until the stand-in frame
+// could do this, nothing about size selection was exercised at all.
+func TestGetMediaPreviewIsADifferentCopy(t *testing.T) {
+	photo := frameotest.WebPExtended(2880, 1920, 40000)
+	preview := frameotest.WebP(570, 380, 5000)
+	for _, c := range []struct {
+		size  frameo.Size
+		want  []byte
+		w, h  int
+		which string
+	}{
+		{frameo.SizeFull, photo, 2880, 1920, "the photo"},
+		{frameo.SizePreview, preview, 570, 380, "the preview"},
+		// The boundary itself, from either side.
+		{499, preview, 570, 380, "the preview"},
+		{500, photo, 2880, 1920, "the photo"},
+	} {
+		frame := frameotest.New()
+		frame.GetMediaType = frameo.TypeGetMedia
+		frame.PreviewBelow = 500
+		frame.Servable = map[int64]frameotest.Servable{
+			7: {Data: photo, Extension: "webp", Preview: preview},
+		}
+		client := setup(t, frame)
+
+		got, err := client.GetMedia(testCtx(t), frameo.Fetch{ID: 7, Size: c.size})
+		if err != nil {
+			t.Fatalf("GetMedia at %d: %v", c.size, err)
+		}
+		if !bytes.Equal(got.Data, c.want) {
+			t.Errorf("a bound of %d brought back %d bytes, want %s at %d",
+				c.size, len(got.Data), c.which, len(c.want))
+		}
+		if got.Width != c.w || got.Height != c.h {
+			t.Errorf("a bound of %d measured %dx%d, want %dx%d", c.size, got.Width, got.Height, c.w, c.h)
+		}
+	}
+}
+
+// TestGetMediaMeasuresWhatArrived covers the dimensions being read from the
+// photo itself, since the frame states them nowhere. A format that cannot be
+// measured says nothing and must still download: the measurement is for one
+// line of output and is not allowed to fail a transfer.
+func TestGetMediaMeasuresWhatArrived(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		ext  string
+		data []byte
+		w, h int
+	}{
+		{"lossy webp", "webp", frameotest.WebP(570, 380, 6000), 570, 380},
+		{"extended webp", "webp", frameotest.WebPExtended(1620, 1080, 6000), 1620, 1080},
+		{"baseline jpeg", "jpg", frameotest.JPEG(1067, 712, 6000), 1067, 712},
+		{"progressive jpeg", "jpg", frameotest.ProgressiveJPEG(1067, 1600, 6000), 1067, 1600},
+		// Bytes in a format nothing here can read. The photo is whole and the
+		// download succeeds; only the dimensions are unknown.
+		{"something else", "webp", photoBytes(6000), 0, 0},
+	} {
+		frame := frameotest.New()
+		frame.GetMediaType = frameo.TypeGetMedia
+		frame.Servable = map[int64]frameotest.Servable{7: {Data: c.data, Extension: c.ext}}
+		client := setup(t, frame)
+
+		got, err := client.GetMedia(testCtx(t), frameo.Fetch{ID: 7})
+		if err != nil {
+			t.Fatalf("%s: GetMedia: %v", c.name, err)
+		}
+		if got.Width != c.w || got.Height != c.h {
+			t.Errorf("%s measured %dx%d, want %dx%d", c.name, got.Width, got.Height, c.w, c.h)
+		}
+	}
+}
+
+// TestGetMediaRefusesANegativeSize keeps a bound that cannot mean anything
+// away from the frame, rather than leaving the frame to decide what it means.
+func TestGetMediaRefusesANegativeSize(t *testing.T) {
+	frame := servingFrame(7, photoBytes(2000))
 	c := setup(t, frame)
 
-	if _, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7, Bound: 512}); err != nil {
-		t.Fatalf("GetMedia: %v", err)
+	if _, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7, Size: -1}); err == nil {
+		t.Error("a bound of -1 was accepted")
+	} else {
+		t.Logf("reported: %v", err)
 	}
-	reqs := frame.Requests()
-	if len(reqs) != 1 {
-		t.Fatalf("the frame saw %d requests, want 1", len(reqs))
-	}
-	if reqs[0].GetWidth() != 512 || reqs[0].GetHeight() != 512 {
-		t.Errorf("asked for %dx%d, want 512x512", reqs[0].GetWidth(), reqs[0].GetHeight())
+	if got := frame.Served(); len(got) != 0 {
+		t.Errorf("the request reached the frame anyway: %v", got)
 	}
 }
 

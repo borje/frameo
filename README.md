@@ -12,12 +12,20 @@ can be fed from a script or a server instead of from the phone app.
     frameo send photo.jpg     # send a photo, named by path or by URL
     frameo list               # what is on the frame
     frameo get 12345          # copy one back off the frame
+    frameo -size preview get 12345   # its small stored copy instead
     frameo delete 12345       # remove one
     frameo discover           # frames on this network
 
 A frame on the same network is reached directly, which skips the relay and is
 several times faster; one elsewhere is reached through it. `-net local` and
 `-net relay` force the choice.
+
+The frame does not scale a photo to order: it keeps the original and a preview
+whose long side is 570 pixels, and `-size` only chooses between them. A preview
+is a twentieth of the bytes, which is what makes fetching a whole library over
+the relay practical. Downloads are named after which copy they are, so both can
+sit in one directory, and `get` prints the dimensions it measured off the photo
+itself -- the frame states them nowhere.
 
 ## Layout
 

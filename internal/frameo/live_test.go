@@ -246,10 +246,11 @@ func TestLiveGetMedia(t *testing.T) {
 	}
 }
 
-// TestLiveGetMediaScaled asks for a scaled copy, which the notes say the frame
-// makes by putting the bound in width and height. What is unconfirmed is what
-// comes back: the reply's own size being the scaled bytes, with no extras.
-func TestLiveGetMediaScaled(t *testing.T) {
+// TestLiveGetMediaSizes fetches the same photo both ways and checks that the
+// two sizes are actually two copies. It replaces a test that asked for a
+// scaled copy and asserted nothing about what came back, which is how the
+// frame's real behaviour went unnoticed for so long.
+func TestLiveGetMediaSizes(t *testing.T) {
 	c := connectLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -263,12 +264,85 @@ func TestLiveGetMediaScaled(t *testing.T) {
 	}
 	id := items[0].GetMediaId()
 
-	got, err := c.GetMedia(ctx, frameo.Fetch{ID: id, Bound: 512})
+	full, err := c.GetMedia(ctx, frameo.Fetch{ID: id})
 	if err != nil {
-		t.Fatalf("GetMedia(%d) scaled: %v", id, err)
+		t.Fatalf("GetMedia(%d) at full size: %v", id, err)
 	}
-	t.Logf("photo %d at a 512 bound: %d bytes, %d extra stream(s), %d thumbnail bytes",
-		id, len(got.Data), len(got.Media.GetExtra()), len(got.Thumbnail))
+	preview, err := c.GetMedia(ctx, frameo.Fetch{ID: id, Size: frameo.SizePreview})
+	if err != nil {
+		t.Fatalf("GetMedia(%d) at preview size: %v", id, err)
+	}
+
+	t.Logf("photo %d full:    %d bytes, %dx%d, %q", id, len(full.Data), full.Width, full.Height, full.Extension())
+	t.Logf("photo %d preview: %d bytes, %dx%d, %q", id, len(preview.Data), preview.Width, preview.Height, preview.Extension())
+
+	// A frame that cannot be measured is a finding rather than a flake: it
+	// means this client has met a format its parser does not know.
+	if full.Width == 0 || preview.Width == 0 {
+		t.Errorf("a copy could not be measured, so imageSize does not know this frame's format: full %q, preview %q",
+			full.Extension(), preview.Extension())
+	}
+	if bytes.Equal(full.Data, preview.Data) {
+		t.Fatalf("both sizes returned the identical %d bytes: this frame keeps one copy, or the bound is ignored", len(full.Data))
+	}
+	if len(preview.Data) >= len(full.Data) {
+		t.Errorf("the preview is %d bytes against the photo's %d", len(preview.Data), len(full.Data))
+	}
+	if max(preview.Width, preview.Height) >= max(full.Width, full.Height) {
+		t.Errorf("the preview is %dx%d against the photo's %dx%d",
+			preview.Width, preview.Height, full.Width, full.Height)
+	}
+}
+
+// TestLiveGetMediaCutoff finds where this frame stops handing out the preview
+// and starts handing out the photo. On the frame this client was built against
+// it is 500, which is a probe's answer and not a documented rule: anyone who
+// gets a different number here should record it beside frameo.Size and reach
+// their own frame with the numeric form of -size.
+func TestLiveGetMediaCutoff(t *testing.T) {
+	c := connectLive(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	items, err := c.ListMedia(ctx)
+	if err != nil {
+		t.Skipf("cannot list media: %v", err)
+	}
+	if len(items) == 0 {
+		t.Skip("the frame holds no photos to fetch")
+	}
+	id := items[0].GetMediaId()
+
+	at := func(size frameo.Size) *frameo.Download {
+		t.Helper()
+		got, err := c.GetMedia(ctx, frameo.Fetch{ID: id, Size: size})
+		if err != nil {
+			t.Fatalf("GetMedia(%d) at %d: %v", id, size, err)
+		}
+		t.Logf("  bound %5d: %7d bytes, %dx%d", size, len(got.Data), got.Width, got.Height)
+		return got
+	}
+
+	small, large := frameo.Size(1), frameo.Size(4096)
+	lo, hi := at(small), at(large)
+	if len(lo.Data) == len(hi.Data) {
+		t.Skipf("this frame answers %d and %d alike, so it keeps one copy", small, large)
+	}
+
+	// Halve the gap until the two bounds sit next to each other; the cutoff is
+	// then the lower of the two that still fetches the photo.
+	for large-small > 1 {
+		mid := small + (large-small)/2
+		if len(at(mid).Data) == len(lo.Data) {
+			small = mid
+		} else {
+			large = mid
+		}
+	}
+	t.Logf("this frame serves the preview below %d and the photo from %d up", large, large)
+	if large != 500 {
+		t.Logf("that is not the 500 measured when this was written; worth recording beside frameo.Size")
+	}
 }
 
 // TestLiveGetMediaRoundTrip sends a photo and reads it straight back, which is
