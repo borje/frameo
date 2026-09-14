@@ -52,9 +52,11 @@ Options:
   -server <host:port>  use this grid server instead of Frameo's
   -v                 log the protocol exchange
 
-get writes each photo as <id>.<extension> in the current directory unless
--out says otherwise, and keeps going past a photo it cannot fetch so that one
-missing id does not cost the rest.
+get writes each photo as <date>_<time>_<id>.<extension> in the current
+directory unless -out says otherwise, so a directory of them sorts into the
+order the photos were taken. A frame that reports no capture date leaves the
+photo named by its id alone. get keeps going past a photo it cannot fetch, so
+one missing id does not cost the rest.
 
 delete removes a photo for good; hide keeps it on the frame and stops it
 being displayed. See internal/frameo/types.go for what is known of the
@@ -425,7 +427,7 @@ func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) 
 		}
 		path := file
 		if path == "" {
-			path = filepath.Join(dir, photoFileName(id, d.Extension()))
+			path = filepath.Join(dir, photoFileName(id, d.Media.GetCaptureDate(), d.Extension()))
 		}
 		// A file that cannot be written is reported like a photo that cannot be
 		// fetched, for the same reason: the rest of the batch is still worth
@@ -443,15 +445,30 @@ func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) 
 	return nil
 }
 
-// photoFileName is what one photo is saved as. The frame files photos under its
-// own identifiers, which the protocol allows to be negative, and a file whose
-// name begins with a dash is read as an option by most of the tools that would
-// go on to handle it. So a negative id spells its sign instead of leading with
-// it.
-func photoFileName(id int64, ext string) string {
+// photoFileName is what one photo is saved as: when it was taken, then the
+// frame's own id for it, then the format.
+//
+// The date leads so that a directory of photos sorts into the order they were
+// taken, which is the order anyone looking through them wants. It is in UTC,
+// matching what `frameo list` prints, so one photo reads the same in both
+// places. The id stays because it is what every other command takes -- delete,
+// hide and show all name a photo by it -- so a file can be acted on without
+// going back to the listing for its number.
+//
+// A frame that reports no capture date leaves the photo named by its id alone.
+// A date of zero would say 1970 and mean nothing.
+func photoFileName(id, captureDate int64, ext string) string {
 	name := strconv.FormatInt(id, 10)
+	// The frame files photos under its own identifiers, which the protocol
+	// allows to be negative, and a file whose name begins with a dash is read
+	// as an option by most of the tools that would go on to handle it. Only
+	// reachable when there is no date in front, but that is exactly the case
+	// this falls back to.
 	if rest, negative := strings.CutPrefix(name, "-"); negative {
 		name = "n" + rest
+	}
+	if captureDate > 0 {
+		name = time.UnixMilli(captureDate).UTC().Format("2006-01-02_150405") + "_" + name
 	}
 	return name + "." + ext
 }

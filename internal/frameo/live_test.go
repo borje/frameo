@@ -221,6 +221,14 @@ func TestLiveGetMedia(t *testing.T) {
 
 	t.Logf("photo %d: %d bytes as %q in %s", id, len(got.Data), got.Extension(), took)
 	t.Logf("  the header names photo %d (0 would mean the frame does not echo the id)", got.Media.GetId())
+	if d := got.Media.GetCaptureDate(); d > 0 {
+		t.Logf("  capture date %s, which is what the file is named after", time.UnixMilli(d).UTC())
+	} else {
+		t.Log("  no capture date: downloads will be named by id alone")
+	}
+	if cap := got.Media.GetCaption(); cap != "" {
+		t.Logf("  caption %q", cap)
+	}
 	t.Logf("  extra streams: %d, thumbnail bytes received: %d", len(got.Media.GetExtra()), len(got.Thumbnail))
 	for i, e := range got.Media.GetExtra() {
 		t.Logf("  extra[%d]: %d bytes, %q", i, e.GetSize(), e.GetFileExtension())

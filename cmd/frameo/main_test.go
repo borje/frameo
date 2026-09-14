@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -461,19 +462,63 @@ func TestGetAllTreatsOutAsADirectory(t *testing.T) {
 }
 
 func TestPhotoFileName(t *testing.T) {
+	// 2024-06-13T14:30:52Z.
+	const taken = 1718289052000
+
 	for _, c := range []struct {
-		id   int64
-		want string
+		id    int64
+		taken int64
+		want  string
 	}{
-		{111, "111.jpg"},
-		{0, "0.jpg"},
+		{111, taken, "2024-06-13_143052_111.jpg"},
+		// A frame that reports no capture date leaves the photo on its id.
+		{111, 0, "111.jpg"},
+		{0, 0, "0.jpg"},
 		// A leading dash would be read as an option by most of the tools that
 		// go on to handle the file.
-		{-111, "n111.jpg"},
-		{-9223372036854775808, "n9223372036854775808.jpg"},
+		{-111, 0, "n111.jpg"},
+		{-9223372036854775808, 0, "n9223372036854775808.jpg"},
+		{-111, taken, "2024-06-13_143052_n111.jpg"},
 	} {
-		if got := photoFileName(c.id, "jpg"); got != c.want {
-			t.Errorf("photoFileName(%d) = %q, want %q", c.id, got, c.want)
+		if got := photoFileName(c.id, c.taken, "jpg"); got != c.want {
+			t.Errorf("photoFileName(%d, %d) = %q, want %q", c.id, c.taken, got, c.want)
 		}
+	}
+}
+
+// TestGetNamesPhotosByWhenTheyWereTaken checks the names sort into the order
+// the photos were taken, which is the point of leading with the date.
+func TestGetNamesPhotosByWhenTheyWereTaken(t *testing.T) {
+	withConfig(t)
+	frame := frameotest.New()
+	frame.GetMediaType = frameo.TypeGetMedia
+	frame.Servable = map[int64]frameotest.Servable{
+		// The later photo has the lower id, so an id-ordered listing would put
+		// these the other way round.
+		111: {Data: jpegBytes(2000, 1), Extension: "jpg", CaptureDate: 1718289052000},
+		222: {Data: jpegBytes(2000, 9), Extension: "jpg", CaptureDate: 1698948900000},
+	}
+	server, code := startFakeFrame(t, frame)
+
+	if _, err := runCLI(t, "-server", server, "pair", code); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if _, err := runCLI(t, "-server", server, "-out", dir, "get", "111", "222"); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	// ReadDir sorts by name, so this is the order a directory listing shows.
+	want := []string{"2023-11-02_181500_222.jpg", "2024-06-13_143052_111.jpg"}
+	if !slices.Equal(names, want) {
+		t.Errorf("directory holds %v, want %v", names, want)
 	}
 }

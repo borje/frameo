@@ -107,6 +107,7 @@ type Frame struct {
 type Servable struct {
 	Data               []byte
 	Extension          string
+	CaptureDate        int64  // epoch millis; zero means the frame reports none
 	Thumbnail          []byte // appended after the photo and described in extra
 	ThumbnailExtension string
 }
@@ -415,6 +416,7 @@ func (f *Frame) headerFor(id int64) *pb.Media {
 		Size:          int32(len(item.Data) + f.SizeDelta),
 		FileExtension: item.Extension,
 		Type:          pb.Media_PICTURE,
+		CaptureDate:   item.CaptureDate,
 	}
 	if len(item.Thumbnail) > 0 {
 		header.Extra = []*pb.Extra{{
