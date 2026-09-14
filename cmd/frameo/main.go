@@ -43,12 +43,11 @@ Options:
   -timeout <dur>     give up after this long, covering the whole run (default 15m)
   -config <path>     configuration file (default: under the user config dir)
   -server <host:port>  use this grid server instead of Frameo's
-  -type <number>     message number for list or delete, whose numbers are not
-                     known yet; try 31 for list
+  -type <number>     message number for delete, whose number is not known yet
   -v                 log the protocol exchange
 
-The numbers list and delete need were never observed, so both refuse unless
--type supplies one. See internal/frameo/types.go for what is known.
+The number delete needs was never observed, so it refuses unless -type
+supplies one. See internal/frameo/types.go for what is known.
 `
 
 type options struct {
@@ -325,10 +324,7 @@ func cmdList(ctx context.Context, cfg *config.Config, o *options) error {
 	}
 	defer c.Close()
 
-	items, err := c.ListMedia(ctx, int32(o.msgType))
-	if errors.Is(err, frameo.ErrTypeUnknown) {
-		return fmt.Errorf("%w\ntry: frameo -type %d list", err, frameo.CandidateGetAllMediaMetaData)
-	}
+	items, err := c.ListMedia(ctx)
 	if err != nil {
 		return err
 	}

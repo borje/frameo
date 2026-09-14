@@ -28,40 +28,37 @@ const (
 	TypeMultiPartMessage   = 30
 	TypeAllMediaMetaData   = 32
 	TypeCalendarStatuses   = 40
+
+	// TypeGetAllMediaMetaData requests a listing. It was a guess, reasoned from
+	// the one-below-its-answer pattern seen elsewhere in this protocol
+	// (GetInfo/FrameInfo at 1/2, and the same gap at 7/8, 18/19, 21/22, 42/43,
+	// 47/48) applied to AllMediaMetaData's 32. Confirmed against a real frame:
+	// sending 31 draws a genuine TypeAllMediaMetaData reply, which a frame only
+	// sends in answer to this request. (24, reasoned the same way from
+	// AllMediaIds at 25, draws a reply typed 25 instead — a different,
+	// unimplemented request, not this one.)
+	TypeGetAllMediaMetaData = 31
 )
 
-// Message numbers this client needs but does not know. GetAllMediaMetaData,
-// DeleteMedia and ChangeMediaVisibility are defined in the app's protobuf
-// schema and the app has receive-side dispatch cases for their replies (32,
-// and for the related AllMediaIds/AllMediaIdsSegment pair, 25/26), but the app
-// itself has no send site for any of the three requests anywhere in its code
-// (checked against a decompile of v1.40.5). The phone never asks for these;
-// whatever sends them lives in the frame's firmware, which is not available to
-// inspect. So there is no source to read the numbers from, guessed or
-// otherwise.
+// Message numbers this client needs but does not know. DeleteMedia and
+// ChangeMediaVisibility are defined in the app's protobuf schema and the app
+// has receive-side dispatch cases for their replies, but the app itself has no
+// send site for either request anywhere in its code (checked against a
+// decompile of v1.40.5). The phone never asks for these; whatever sends them
+// lives in the frame's firmware, which is not available to inspect. So there
+// is no source to read the numbers from, guessed or otherwise.
 //
 // Zero means unknown, and the commands that need them refuse rather than send
 // a message a frame might read as something else entirely. Supply a candidate
 // with the command line's -type option to try one against a real frame.
 //
-// CandidateGetAllMediaMetaData is a guess, not a recovered value: requests are
-// often numbered one below their answer elsewhere in this protocol (GetInfo/
-// FrameInfo at 1/2, and the same gap at 7/8, 18/19, 21/22, 42/43, 47/48), and
-// AllMediaMetaData's reply is 32, so 31 is the first thing worth trying. It is
-// read-only, so trying it costs nothing if wrong. 24 is a second candidate
-// worth trying, by the same one-below pattern applied to AllMediaIds (25)
-// instead. Confirming either still needs a real frame.
-//
-// DeleteMedia and ChangeMediaVisibility have no answering message to anchor a
-// guess at all, and both change what is on the frame, so this client does not
-// guess them. Finding them needs either a live capture of a real remote-manage
-// session, or a live probe with `frameo raw <n>` against a real frame, judging
-// success by whether the frame answers or by inspecting its state afterward.
+// Unlike GetAllMediaMetaData, DeleteMedia and ChangeMediaVisibility have no
+// answering message to anchor a guess at all, and both change what is on the
+// frame, so this client does not guess them. Finding them needs either a live
+// capture of a real remote-manage session, or a live probe with
+// `frameo raw <n>` against a real frame, judging success by whether the frame
+// answers or by inspecting its state afterward.
 const (
-	// CandidateGetAllMediaMetaData is the inferred number described above.
-	CandidateGetAllMediaMetaData = 31
-
-	TypeGetAllMediaMetaData   = 0
 	TypeDeleteMedia           = 0
 	TypeChangeMediaVisibility = 0
 )
@@ -97,6 +94,8 @@ func typeName(t int32) string {
 		return "MultiPartMessage"
 	case TypeAllMediaMetaData:
 		return "AllMediaMetaData"
+	case TypeGetAllMediaMetaData:
+		return "GetAllMediaMetaData"
 	case TypeCalendarStatuses:
 		return "CalendarStatuses"
 	default:

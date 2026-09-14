@@ -128,19 +128,22 @@ func TestLiveSendPhotoSingleSegment(t *testing.T) {
 	t.Logf("the frame accepted the photo as %d", id)
 }
 
-// TestLiveProbeListNumber tries the inferred number for a listing request and
-// reports what comes back. It sends only a request for information.
-func TestLiveProbeListNumber(t *testing.T) {
+// TestLiveListMedia asks the real frame for its media listing. The message
+// number (31) is confirmed: the frame recognises the request and answers with
+// a genuine AllMediaMetaData reply. Whether that reply carries a usable
+// listing depends on this pairing's permissions (see `frameo info`), which is
+// why a refusal only logs and skips rather than failing outright.
+func TestLiveListMedia(t *testing.T) {
 	c := connectLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	items, err := c.ListMedia(ctx, frameo.CandidateGetAllMediaMetaData)
+	items, err := c.ListMedia(ctx)
 	if err != nil {
-		t.Logf("message %d did not produce a listing: %v", frameo.CandidateGetAllMediaMetaData, err)
-		t.Skip("the inferred number is wrong or the frame declined; check the frame's own source")
+		t.Logf("listing failed: %v", err)
+		t.Skip("the frame answered but refused; this pairing may lack view/manage permission")
 	}
-	t.Logf("message %d works: the frame listed %d item(s)", frameo.CandidateGetAllMediaMetaData, len(items))
+	t.Logf("the frame listed %d item(s)", len(items))
 	for i, m := range items {
 		if i >= 5 {
 			t.Logf("  and %d more", len(items)-i)
@@ -162,7 +165,7 @@ func TestLiveRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	before, err := c.ListMedia(ctx, frameo.CandidateGetAllMediaMetaData)
+	before, err := c.ListMedia(ctx)
 	if err != nil {
 		t.Skipf("cannot list media yet: %v", err)
 	}
@@ -170,7 +173,7 @@ func TestLiveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendPhoto: %v", err)
 	}
-	after, err := c.ListMedia(ctx, frameo.CandidateGetAllMediaMetaData)
+	after, err := c.ListMedia(ctx)
 	if err != nil {
 		t.Fatalf("listing after sending: %v", err)
 	}

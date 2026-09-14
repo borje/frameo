@@ -301,9 +301,6 @@ func TestMediaManagementNeedsUnknownMessageNumbers(t *testing.T) {
 	c := setup(t, frame)
 	ctx := testCtx(t)
 
-	if _, err := c.ListMedia(ctx, 0); !errors.Is(err, frameo.ErrTypeUnknown) {
-		t.Errorf("ListMedia err = %v, want ErrTypeUnknown", err)
-	}
 	if err := c.DeleteMedia(ctx, []int64{1}, 0); !errors.Is(err, frameo.ErrTypeUnknown) {
 		t.Errorf("DeleteMedia err = %v, want ErrTypeUnknown", err)
 	}
@@ -313,6 +310,27 @@ func TestMediaManagementNeedsUnknownMessageNumbers(t *testing.T) {
 	// Nothing to do is not an error, even when the number is unknown.
 	if err := c.DeleteMedia(ctx, nil, 0); err != nil {
 		t.Errorf("DeleteMedia with no ids = %v, want nil", err)
+	}
+}
+
+func TestListMedia(t *testing.T) {
+	frame := frameotest.New()
+	frame.ListType = frameo.TypeGetAllMediaMetaData
+	frame.Library = []*pb.MediaMetaData{
+		{MediaId: 1, CaptureDate: 1000, IsVisible: true},
+		{MediaId: 2, CaptureDate: 2000, IsVisible: false},
+	}
+	c := setup(t, frame)
+
+	items, err := c.ListMedia(testCtx(t))
+	if err != nil {
+		t.Fatalf("ListMedia: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("got %d items, want 2", len(items))
+	}
+	if items[0].GetMediaId() != 1 || items[1].GetMediaId() != 2 {
+		t.Errorf("items = %+v, want ids 1 and 2 in order", items)
 	}
 }
 

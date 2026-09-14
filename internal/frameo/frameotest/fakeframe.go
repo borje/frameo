@@ -37,8 +37,8 @@ type Frame struct {
 	// DropAck makes the frame accept a photo but never confirm it.
 	DropAck bool
 	// ListType is the message number this frame answers a listing request on.
-	// The real number is unknown, so it is configurable here to exercise the
-	// path that supplies a candidate.
+	// Configurable rather than fixed to frameo.TypeGetAllMediaMetaData so this
+	// package stays independent of that client-side constant.
 	ListType int32
 	// DeleteType is the message number this frame accepts deletions on.
 	DeleteType int32

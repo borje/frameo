@@ -171,17 +171,9 @@ func fileExtension(path string) string {
 	return ext
 }
 
-// ListMedia asks the frame what it is holding. msgType overrides the message
-// number when it is non-zero, which is how a candidate is tried while the real
-// one is unknown.
-func (c *Client) ListMedia(ctx context.Context, msgType int32) ([]*pb.MediaMetaData, error) {
-	if msgType == 0 {
-		msgType = TypeGetAllMediaMetaData
-	}
-	if msgType == 0 {
-		return nil, fmt.Errorf("listing media: %w", ErrTypeUnknown)
-	}
-	if err := c.send(ctx, msgType, &pb.GetAllMediaMetaData{}); err != nil {
+// ListMedia asks the frame what it is holding.
+func (c *Client) ListMedia(ctx context.Context) ([]*pb.MediaMetaData, error) {
+	if err := c.send(ctx, TypeGetAllMediaMetaData, &pb.GetAllMediaMetaData{}); err != nil {
 		return nil, err
 	}
 	f, err := c.await(ctx, "the media list", expectType(TypeAllMediaMetaData))

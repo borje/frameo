@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"frameo/internal/frameo"
 	"frameo/internal/frameo/frameotest"
 	"frameo/internal/frameo/pb"
 	"frameo/internal/sdg/sdgtest"
@@ -113,6 +114,7 @@ func TestSendChecksFilesBeforeConnecting(t *testing.T) {
 func TestPairSendAndInspect(t *testing.T) {
 	withConfig(t)
 	frame := frameotest.New()
+	frame.ListType = frameo.TypeGetAllMediaMetaData
 	server, code := startFakeFrame(t, frame)
 
 	out, err := runCLI(t, "-server", server, "pair", code)
@@ -165,10 +167,12 @@ func TestPairSendAndInspect(t *testing.T) {
 		t.Errorf("caption = %q, want Sunset", got)
 	}
 
-	// Listing needs a message number that is not known yet, so it must refuse
-	// rather than send something the frame would misread.
-	if _, err := runCLI(t, "-server", server, "list"); err == nil {
-		t.Error("list should refuse until its message number is known")
+	out, err = runCLI(t, "-server", server, "list")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(out, "holds no photos") {
+		t.Errorf("list output:\n%s", out)
 	}
 
 	out, err = runCLI(t, "forget", "frame1")
@@ -224,13 +228,14 @@ func TestSendSeveralPhotosFromTheCommandLine(t *testing.T) {
 	}
 }
 
-// The numbers for listing and deleting are unknown, so both refuse by default
-// and take a candidate from -type. This checks that path works, so that trying
-// a candidate against a real frame is a matter of passing the flag.
+// Listing's message number is known, so it works out of the box. Deleting's
+// is not, so it refuses by default and takes a candidate from -type. This
+// checks that path works, so that trying a candidate against a real frame is
+// a matter of passing the flag.
 func TestListAndDeleteWithASuppliedMessageNumber(t *testing.T) {
 	withConfig(t)
 	frame := frameotest.New()
-	frame.ListType = 31
+	frame.ListType = frameo.TypeGetAllMediaMetaData
 	frame.DeleteType = 34
 	frame.Library = []*pb.MediaMetaData{
 		{MediaId: 111, CaptureDate: 1600000000000, IsVisible: true},
@@ -242,16 +247,7 @@ func TestListAndDeleteWithASuppliedMessageNumber(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Without a number, the command must refuse and say what to try.
-	_, err := runCLI(t, "-server", server, "list")
-	if err == nil {
-		t.Fatal("list should refuse without a message number")
-	}
-	if !strings.Contains(err.Error(), "-type 31") {
-		t.Errorf("the refusal does not suggest a candidate: %v", err)
-	}
-
-	out, err := runCLI(t, "-server", server, "-type", "31", "list")
+	out, err := runCLI(t, "-server", server, "list")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -259,6 +255,11 @@ func TestListAndDeleteWithASuppliedMessageNumber(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("list output does not mention %q:\n%s", want, out)
 		}
+	}
+
+	// Without a number, delete must refuse and say what to try.
+	if _, err := runCLI(t, "-server", server, "delete", "111"); err == nil {
+		t.Fatal("delete should refuse without a message number")
 	}
 
 	if _, err := runCLI(t, "-server", server, "-type", "34", "delete", "111"); err != nil {
