@@ -11,9 +11,12 @@
 package frameo_test
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -188,4 +191,106 @@ func TestLiveRoundTrip(t *testing.T) {
 	if !found {
 		t.Logf("the frame files photos under its own identifiers, not the one we chose")
 	}
+}
+
+// TestLiveGetMedia downloads a photo the frame already holds. It is also the
+// experiment the protocol notes ask for, so it reports what it saw rather than
+// only whether it worked: whether the frame echoes the id it was asked for,
+// whether a full-resolution reply appends a thumbnail after the photo, and how
+// long the transfer took against the six seconds allowed for it.
+func TestLiveGetMedia(t *testing.T) {
+	c := connectLive(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	items, err := c.ListMedia(ctx)
+	if err != nil {
+		t.Skipf("cannot list media: %v", err)
+	}
+	if len(items) == 0 {
+		t.Skip("the frame holds no photos to fetch")
+	}
+	id := items[0].GetMediaId()
+
+	start := time.Now()
+	got, err := c.GetMedia(ctx, frameo.Fetch{ID: id})
+	took := time.Since(start)
+	if err != nil {
+		t.Fatalf("GetMedia(%d): %v", id, err)
+	}
+
+	t.Logf("photo %d: %d bytes as %q in %s", id, len(got.Data), got.Extension(), took)
+	t.Logf("  the header names photo %d (0 would mean the frame does not echo the id)", got.Media.GetId())
+	t.Logf("  extra streams: %d, thumbnail bytes received: %d", len(got.Media.GetExtra()), len(got.Thumbnail))
+	for i, e := range got.Media.GetExtra() {
+		t.Logf("  extra[%d]: %d bytes, %q", i, e.GetSize(), e.GetFileExtension())
+	}
+	if got.Media.GetId() != 0 && got.Media.GetId() != id {
+		t.Errorf("asked for photo %d and the header names %d", id, got.Media.GetId())
+	}
+
+	if dir := os.Getenv("FRAMEO_OUT"); dir != "" {
+		path := filepath.Join(dir, fmt.Sprintf("%d.%s", id, got.Extension()))
+		if err := os.WriteFile(path, got.Data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("wrote %s; open it to confirm it is a photo", path)
+	}
+}
+
+// TestLiveGetMediaScaled asks for a scaled copy, which the notes say the frame
+// makes by putting the bound in width and height. What is unconfirmed is what
+// comes back: the reply's own size being the scaled bytes, with no extras.
+func TestLiveGetMediaScaled(t *testing.T) {
+	c := connectLive(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	items, err := c.ListMedia(ctx)
+	if err != nil {
+		t.Skipf("cannot list media: %v", err)
+	}
+	if len(items) == 0 {
+		t.Skip("the frame holds no photos to fetch")
+	}
+	id := items[0].GetMediaId()
+
+	got, err := c.GetMedia(ctx, frameo.Fetch{ID: id, Bound: 512})
+	if err != nil {
+		t.Fatalf("GetMedia(%d) scaled: %v", id, err)
+	}
+	t.Logf("photo %d at a 512 bound: %d bytes, %d extra stream(s), %d thumbnail bytes",
+		id, len(got.Data), len(got.Media.GetExtra()), len(got.Thumbnail))
+}
+
+// TestLiveGetMediaRoundTrip sends a photo and reads it straight back, which is
+// the check that the two directions agree: the same id, and the same bytes if
+// the frame stores what it is given rather than re-encoding it.
+func TestLiveGetMediaRoundTrip(t *testing.T) {
+	path := os.Getenv("FRAMEO_PHOTO")
+	if path == "" {
+		t.Skip("set FRAMEO_PHOTO to a file to run the round trip")
+	}
+	sent, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := connectLive(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	id, err := c.SendPhoto(ctx, frameo.Photo{Path: path, Caption: "round trip"})
+	if err != nil {
+		t.Fatalf("SendPhoto: %v", err)
+	}
+	got, err := c.GetMedia(ctx, frameo.Fetch{ID: id})
+	if err != nil {
+		t.Fatalf("GetMedia(%d): %v", id, err)
+	}
+	if bytes.Equal(got.Data, sent) {
+		t.Logf("the frame returned the %d bytes it was given, unchanged", len(sent))
+		return
+	}
+	t.Logf("sent %d bytes and %d came back: the frame re-encodes what it stores",
+		len(sent), len(got.Data))
 }

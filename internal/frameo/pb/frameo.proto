@@ -55,6 +55,12 @@ message MediaDataSegment {
   int64  requires_acknowledge_receipt_id = 16;  // set on the last segment; frame replies AcknowledgeReceipt
 }
 
+// Ask the frame for one stored photo. The frame answers with a Media header
+// followed by MediaDataSegment bytes -- the same pair the upload path uses,
+// pointed the other way. Leave width/height at zero for the full-resolution
+// file; set both to a square bound to have the frame scale it first.
+message GetMedia { sint64 media_id = 1; int32 width = 2; int32 height = 3; }
+
 message MediaUpdate { Media media = 1; }
 
 // Resume a partially-transferred media (client asks, frame answers received_bytes)
@@ -77,7 +83,19 @@ message MultiPartMessage {
 // ======================================================================
 message AcknowledgeReceipt { int64 acknowledge_id = 1; Error error = 2; }
 message Error              { Code code = 1; int32 additional_int = 2;
-  enum Code { OK = 0; } // full code set not reconstructed; frame->client only
+  // Recovered from the v1.40.5 decompile; frame->client only.
+  enum Code {
+    NONE                      = 0;
+    UNAUTHORIZED              = 1;
+    SERVER_ERROR              = 2;
+    BAD_REQUEST               = 3;
+    GENERIC_FAILURE           = 4;
+    MISSING_PERMISSION        = 5;
+    MISSING_MEDIA_ITEM        = 6;
+    FAILED_SENDING_MEDIA_ITEM = 7;
+    NOT_FOUND                 = 8;
+    DECLINED                  = 9;
+  }
 }
 
 // ======================================================================

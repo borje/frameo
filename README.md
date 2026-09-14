@@ -11,6 +11,7 @@ can be fed from a script or a server instead of from the phone app.
     frameo info               # what the frame is and how big its screen is
     frameo send photo.jpg     # send a photo
     frameo list               # what is on the frame
+    frameo get 12345          # copy one back off the frame
     frameo delete 12345       # remove one
 
 ## Layout
@@ -40,6 +41,8 @@ does not.
 
 ## What is left
 
-Photos have not yet been sent to a real frame, and deleting needs a message
-number that was never observed. `NEXT-STEPS.md` lists what remains, what each
-piece is waiting on, and what to ask for.
+Sending, listing, hiding and deleting have all been confirmed against a real
+frame. Downloading has not: it was built from a decompile of the app rather
+than by probing, so the message number and the shape of the reply are on paper
+but not yet seen. `NEXT-STEPS.md` lists what remains, what each piece is
+waiting on, and what to ask for.

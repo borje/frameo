@@ -311,3 +311,169 @@ func TestHideAndShow(t *testing.T) {
 		t.Error("want an error when no ids are given")
 	}
 }
+
+// jpegBytes makes bytes that begin and end the way a JPEG does, since the
+// client refuses a download that does not look like the photo it asked for.
+func jpegBytes(size int, seed byte) []byte {
+	data := make([]byte, size)
+	for i := range data {
+		data[i] = seed + byte(i)
+	}
+	copy(data, []byte{0xff, 0xd8, 0xff})
+	copy(data[size-2:], []byte{0xff, 0xd9})
+	return data
+}
+
+func TestGetWritesPhotosToDisk(t *testing.T) {
+	withConfig(t)
+	frame := frameotest.New()
+	frame.GetMediaType = frameo.TypeGetMedia
+	one, two := jpegBytes(5000, 1), jpegBytes(3000, 40)
+	frame.Servable = map[int64]frameotest.Servable{
+		111: {Data: one, Extension: "jpg"},
+		222: {Data: two, Extension: "jpg"},
+	}
+	server, code := startFakeFrame(t, frame)
+
+	if _, err := runCLI(t, "-server", server, "pair", code); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	out, err := runCLI(t, "-server", server, "-out", dir, "get", "111", "222")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	for id, want := range map[int64][]byte{111: one, 222: two} {
+		path := filepath.Join(dir, fmt.Sprintf("%d.jpg", id))
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("reading %s: %v\n%s", path, err, out)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s holds %d bytes, want %d, and they differ", path, len(got), len(want))
+		}
+	}
+
+	// A single photo may be named outright.
+	named := filepath.Join(t.TempDir(), "chosen.jpg")
+	if _, err := runCLI(t, "-server", server, "-out", named, "get", "111"); err != nil {
+		t.Fatalf("get to a named file: %v", err)
+	}
+	if got, err := os.ReadFile(named); err != nil || !bytes.Equal(got, one) {
+		t.Errorf("reading %s: %v", named, err)
+	}
+}
+
+// TestGetKeepsGoingPastAMissingPhoto is the batch policy: one id that cannot be
+// fetched costs that id and nothing else, and the run still reports failure.
+func TestGetKeepsGoingPastAMissingPhoto(t *testing.T) {
+	withConfig(t)
+	frame := frameotest.New()
+	frame.GetMediaType = frameo.TypeGetMedia
+	want := jpegBytes(4000, 7)
+	frame.Servable = map[int64]frameotest.Servable{222: {Data: want, Extension: "jpg"}}
+	server, code := startFakeFrame(t, frame)
+
+	if _, err := runCLI(t, "-server", server, "pair", code); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	// 111 is not on the frame; 222 is, and comes after it.
+	_, err := runCLI(t, "-server", server, "-out", dir, "get", "111", "222")
+	if err == nil {
+		t.Error("want an error when a photo could not be fetched")
+	}
+	got, readErr := os.ReadFile(filepath.Join(dir, "222.jpg"))
+	if readErr != nil {
+		t.Fatalf("the photo after the missing one was not saved: %v", readErr)
+	}
+	if !bytes.Equal(got, want) {
+		t.Error("222.jpg is not the photo the frame holds")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "111.jpg")); err == nil {
+		t.Error("a file was written for the photo that could not be fetched")
+	}
+}
+
+func TestGetAllFetchesTheWholeListing(t *testing.T) {
+	withConfig(t)
+	frame := frameotest.New()
+	frame.ListType = frameo.TypeGetAllMediaMetaData
+	frame.GetMediaType = frameo.TypeGetMedia
+	frame.Library = []*pb.MediaMetaData{
+		{MediaId: 111, IsVisible: true},
+		{MediaId: 222, IsVisible: true},
+	}
+	frame.Servable = map[int64]frameotest.Servable{
+		111: {Data: jpegBytes(2000, 1), Extension: "jpg"},
+		222: {Data: jpegBytes(2500, 9), Extension: "jpg"},
+	}
+	server, code := startFakeFrame(t, frame)
+
+	if _, err := runCLI(t, "-server", server, "pair", code); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	if _, err := runCLI(t, "-server", server, "-out", dir, "get", "all"); err != nil {
+		t.Fatalf("get all: %v", err)
+	}
+	for _, name := range []string{"111.jpg", "222.jpg"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s was not written: %v", name, err)
+		}
+	}
+	if got := frame.Served(); len(got) != 2 {
+		t.Errorf("the frame was asked for %v, want both ids once each", got)
+	}
+}
+
+// TestGetAllTreatsOutAsADirectory guards a batch of one. "all" is a batch
+// whatever the frame happens to hold, so -out names where photos go and not
+// what a single photo is called.
+func TestGetAllTreatsOutAsADirectory(t *testing.T) {
+	withConfig(t)
+	frame := frameotest.New()
+	frame.ListType = frameo.TypeGetAllMediaMetaData
+	frame.GetMediaType = frameo.TypeGetMedia
+	frame.Library = []*pb.MediaMetaData{{MediaId: 111, IsVisible: true}}
+	frame.Servable = map[int64]frameotest.Servable{
+		111: {Data: jpegBytes(2000, 1), Extension: "jpg"},
+	}
+	server, code := startFakeFrame(t, frame)
+
+	if _, err := runCLI(t, "-server", server, "pair", code); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := filepath.Join(t.TempDir(), "photos")
+	if _, err := runCLI(t, "-server", server, "-out", dir, "get", "all"); err != nil {
+		t.Fatalf("get all: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "111.jpg")); err != nil {
+		t.Errorf("want the photo inside %s: %v", dir, err)
+	}
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		t.Errorf("%s should be a directory", dir)
+	}
+}
+
+func TestPhotoFileName(t *testing.T) {
+	for _, c := range []struct {
+		id   int64
+		want string
+	}{
+		{111, "111.jpg"},
+		{0, "0.jpg"},
+		// A leading dash would be read as an option by most of the tools that
+		// go on to handle the file.
+		{-111, "n111.jpg"},
+		{-9223372036854775808, "n9223372036854775808.jpg"},
+	} {
+		if got := photoFileName(c.id, "jpg"); got != c.want {
+			t.Errorf("photoFileName(%d) = %q, want %q", c.id, got, c.want)
+		}
+	}
+}

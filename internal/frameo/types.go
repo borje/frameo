@@ -53,6 +53,18 @@ const (
 	// true moved it back. Hidden photos stay in the listing, marked hidden,
 	// which is what makes this observable at all.
 	TypeChangeMediaVisibility = 33
+
+	// TypeGetMedia asks the frame to send one stored photo back. Taken from a
+	// decompile of the app rather than from a probe: net.frameo.app v1.40.5
+	// builds a GetMedia and sends it on 23, and the frame answers with a
+	// Media(4) header followed by MediaDataSegment(5) bytes -- the same pair
+	// the upload path uses, pointed the other way. See GETMEDIA.md.
+	//
+	// Not yet confirmed live. The only reply ever seen from 23 on a real frame
+	// was the permission refusal noted below, sent before this pairing had view
+	// permission, so it neither confirms nor contradicts the number. A genuine
+	// photo coming back is what would settle it.
+	TypeGetMedia = 23
 )
 
 // Candidates seen but not yet confirmed the way TypeGetAllMediaMetaData was:
@@ -62,13 +74,13 @@ const (
 // false` on this pairing), never a genuine positive payload. Naming these as
 // constants waits on that positive confirmation.
 //
-//   - 23, empty payload: replies with a `Media`-shaped message carrying
-//     `Error{Code: 5}` at field 11, matching Media's own error field exactly
-//     (payload hex 5a020805 decodes to field 11 → {field 1: 5}). Consistent
-//     with a "GetMedia" that fetches one photo's data and normally answers
-//     with Media(4) followed by MediaDataSegment(5) chunks — the same shapes
-//     already used for uploading, reused for download — but that is
-//     unverified; only the error path has been seen.
+//   - 23 is no longer on this list: it is TypeGetMedia above, on the strength
+//     of the decompile rather than of this probe. What the probe saw is still
+//     worth recording, because it agrees: an empty payload sent to 23 drew a
+//     `Media`-shaped message carrying `Error{Code: 5}` at field 11, matching
+//     Media's own error field exactly (payload hex 5a020805 decodes to field
+//     11 → {field 1: 5}). A number that answers in Media's shape is a number
+//     that deals in Media, which is what GetMedia does.
 //   - 24, empty payload: replies typed 25 carrying `Error{Code: 5}` at field
 //     2 (payload hex 12020805 decodes to field 2 → {field 1: 5}) — a
 //     smaller, distinct shape from Media's, consistent with a lean
@@ -98,8 +110,9 @@ const (
 // The 23/24/26 probes above were empty-payload and made while this pairing was
 // still refused for lack of view/manage permission. That permission has since
 // been granted on the frame, so their error-code-5 results say nothing about
-// those numbers any more and all three are worth re-probing, 23 with a real
-// media id in the payload.
+// those numbers any more and 24 and 26 are both worth re-probing. 23 no longer
+// needs a probe so much as a use: `frameo get <id>` sends a real GetMedia with
+// a real media id, which is the experiment that comment used to ask for.
 //
 // Probing for MediaUpdate's number is dangerous in a way the others are not,
 // and the reason is the wire format rather than anything about the frame.
@@ -114,6 +127,15 @@ const (
 // omits default values, so ChangeMediaVisibility{ids, IsVisible: false} and
 // DeleteMedia{ids} serialise to identical bytes. Setting IsVisible true does
 // not help either; DeleteMedia simply ignores the extra field.
+//
+// GetMedia joins that family rather than escaping it, and is worth singling out
+// because it now has a command behind it. GetMedia is {sint64 mediaId = 1}: one
+// unpacked varint in field 1. A repeated scalar field accepts both the packed
+// and the unpacked encoding, so those exact bytes are also a valid
+// DeleteMedia{mediaIds: [that id]}. Checked rather than reasoned: GetMedia{111}
+// serialises to 08de01, and that decodes back as DeleteMedia{mediaIds: [111]}.
+// `frameo -type 34 get <id>` therefore deletes the photo it was asked to fetch,
+// and reads as an ordinary deletion at the other end.
 //
 // So there is no payload that is safe to aim at an unknown number. The only
 // protection is the media id: probe with a throwaway photo uploaded for the
@@ -158,6 +180,8 @@ func typeName(t int32) string {
 		return "AllMediaMetaData"
 	case TypeGetAllMediaMetaData:
 		return "GetAllMediaMetaData"
+	case TypeGetMedia:
+		return "GetMedia"
 	case TypeDeleteMedia:
 		return "DeleteMedia"
 	case TypeChangeMediaVisibility:

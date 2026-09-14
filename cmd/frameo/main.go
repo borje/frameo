@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ Commands:
   info               describe the frame
   send <file>...     send photos
   list               list the photos on the frame
+  get <id>... | all  copy photos off the frame into files
   hide <id>...       hide photos without removing them
   show <id>...       show photos that were hidden
   delete <id>...     remove photos from the frame
@@ -40,29 +42,38 @@ Commands:
 Options:
   -frame <name>      which paired frame to use (default: the first one paired)
   -caption <text>    caption to send with a photo
+  -out <path>        where get writes: a file for one photo, a directory for many
+  -size <pixels>     ask get for a copy scaled to fit this square
+  -wait <dur>        how long get waits for one photo before asking again (default 6s)
   -fit               fit the whole photo on screen instead of cropping to fill
   -single-segment    send each photo as one message instead of a series
   -timeout <dur>     give up after this long, covering the whole run (default 15m)
   -config <path>     configuration file (default: under the user config dir)
   -server <host:port>  use this grid server instead of Frameo's
-  -type <number>     override the message number, to try a candidate by hand
   -v                 log the protocol exchange
+
+get writes each photo as <id>.<extension> in the current directory unless
+-out says otherwise, and keeps going past a photo it cannot fetch so that one
+missing id does not cost the rest.
 
 delete removes a photo for good; hide keeps it on the frame and stops it
 being displayed. See internal/frameo/types.go for what is known of the
-protocol, including the one message number still missing.
+protocol, including the one message number still missing and the one taken
+from a decompile that no frame has yet confirmed.
 `
 
 type options struct {
 	out           io.Writer
 	frame         string
 	caption       string
+	outPath       string
+	size          int
+	wait          time.Duration
 	fit           bool
 	singleSegment bool
 	timeout       time.Duration
 	configPath    string
 	server        string
-	msgType       int
 	verbose       bool
 }
 
@@ -80,12 +91,14 @@ func run(args []string, stdout io.Writer) error {
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	fs.StringVar(&o.frame, "frame", "", "which paired frame to use")
 	fs.StringVar(&o.caption, "caption", "", "caption to send with a photo")
+	fs.StringVar(&o.outPath, "out", "", "where get writes")
+	fs.IntVar(&o.size, "size", 0, "ask get for a copy scaled to fit this square")
+	fs.DurationVar(&o.wait, "wait", 0, "how long get waits for one photo before asking again")
 	fs.BoolVar(&o.fit, "fit", false, "fit the whole photo on screen")
 	fs.BoolVar(&o.singleSegment, "single-segment", false, "send each photo as one message")
 	fs.DurationVar(&o.timeout, "timeout", 15*time.Minute, "give up after this long")
 	fs.StringVar(&o.configPath, "config", "", "configuration file")
 	fs.StringVar(&o.server, "server", "", "grid server to use")
-	fs.IntVar(&o.msgType, "type", 0, "message number to use for a command whose number is unknown")
 	fs.BoolVar(&o.verbose, "v", false, "log the protocol exchange")
 	if err := fs.Parse(args); err != nil {
 		return errors.New("run \"frameo\" with no arguments for usage")
@@ -130,6 +143,8 @@ func run(args []string, stdout io.Writer) error {
 		return cmdSend(ctx, cfg, &o, rest)
 	case "list":
 		return cmdList(ctx, cfg, &o)
+	case "get":
+		return cmdGet(ctx, cfg, &o, rest)
 	case "hide":
 		return cmdSetVisible(ctx, cfg, &o, rest, false)
 	case "show":
@@ -153,6 +168,7 @@ func run(args []string, stdout io.Writer) error {
 // command has no side effects.
 var knownCommands = map[string]bool{
 	"pair": true, "info": true, "send": true, "list": true, "delete": true,
+	"get":  true,
 	"hide": true, "show": true,
 	"frames": true, "forget": true, "whoami": true, "raw": true,
 }
@@ -352,6 +368,142 @@ func cmdList(ctx context.Context, cfg *config.Config, o *options) error {
 	return nil
 }
 
+// cmdGet copies photos off the frame. A photo that cannot be fetched is
+// reported and the run carries on: the others are still worth having, and a
+// listing naming a photo that has since been removed is an ordinary thing to
+// meet. The exit status still says something went wrong.
+func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: frameo get <id>... | frameo get all")
+	}
+	all := len(args) == 1 && args[0] == "all"
+	var ids []int64
+	if !all {
+		var err error
+		if ids, err = parseIDs(args); err != nil {
+			return err
+		}
+	}
+	// Settle where the photos will go before opening a connection, so an
+	// unusable -out costs nothing to discover.
+	dir, file, err := getTarget(o.outPath, all || len(ids) > 1)
+	if err != nil {
+		return err
+	}
+
+	c, name, err := connect(ctx, cfg, o)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	if all {
+		items, err := c.ListMedia(ctx)
+		if err != nil {
+			return err
+		}
+		for _, m := range items {
+			ids = append(ids, m.GetMediaId())
+		}
+		if len(ids) == 0 {
+			fmt.Fprintf(o.out, "%s holds no photos.\n", name)
+			return nil
+		}
+	}
+
+	var failed int
+	for _, id := range ids {
+		d, err := c.GetMedia(ctx, frameo.Fetch{
+			ID:      id,
+			Bound:   int32(o.size),
+			Timeout: o.wait,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "frameo: photo %d: %v\n", id, err)
+			failed++
+			continue
+		}
+		path := file
+		if path == "" {
+			path = filepath.Join(dir, photoFileName(id, d.Extension()))
+		}
+		// A file that cannot be written is reported like a photo that cannot be
+		// fetched, for the same reason: the rest of the batch is still worth
+		// having, and the count at the end says how much was lost.
+		if err := writeWhole(path, d.Data); err != nil {
+			fmt.Fprintf(os.Stderr, "frameo: photo %d: %v\n", id, err)
+			failed++
+			continue
+		}
+		fmt.Fprintf(o.out, "Saved %s from %s, %d bytes.\n", path, name, len(d.Data))
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d of %d photo(s) could not be fetched", failed, len(ids))
+	}
+	return nil
+}
+
+// photoFileName is what one photo is saved as. The frame files photos under its
+// own identifiers, which the protocol allows to be negative, and a file whose
+// name begins with a dash is read as an option by most of the tools that would
+// go on to handle it. So a negative id spells its sign instead of leading with
+// it.
+func photoFileName(id int64, ext string) string {
+	name := strconv.FormatInt(id, 10)
+	if rest, negative := strings.CutPrefix(name, "-"); negative {
+		name = "n" + rest
+	}
+	return name + "." + ext
+}
+
+// getTarget works out where the photos go. One photo may be named directly;
+// a batch cannot all be the same file, so -out has to be a directory then.
+func getTarget(out string, batch bool) (dir, file string, err error) {
+	if out == "" {
+		return ".", "", nil
+	}
+	if batch {
+		if err := os.MkdirAll(out, 0o755); err != nil {
+			return "", "", err
+		}
+		return out, "", nil
+	}
+	// A single photo written into an existing directory keeps its own name
+	// there, which is what naming a directory is asking for.
+	if st, err := os.Stat(out); err == nil && st.IsDir() {
+		return out, "", nil
+	}
+	if d := filepath.Dir(out); d != "" {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return "", "", err
+		}
+	}
+	return "", out, nil
+}
+
+// writeWhole writes the photo, and writes it whole or not at all: an
+// interrupted run must not leave a truncated file under a name that looks
+// finished.
+func writeWhole(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".frameo-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
 // cmdSetVisible hides or shows photos, which is the reversible alternative to
 // deleting them: the frame keeps the photo and stops displaying it.
 func cmdSetVisible(ctx context.Context, cfg *config.Config, o *options, args []string, visible bool) error {
@@ -373,7 +525,7 @@ func cmdSetVisible(ctx context.Context, cfg *config.Config, o *options, args []s
 	}
 	defer c.Close()
 
-	if err := c.SetMediaVisible(ctx, ids, visible, int32(o.msgType)); err != nil {
+	if err := c.SetMediaVisible(ctx, ids, visible); err != nil {
 		return err
 	}
 	shown := "Hid"
@@ -411,7 +563,7 @@ func cmdDelete(ctx context.Context, cfg *config.Config, o *options, args []strin
 	}
 	defer c.Close()
 
-	if err := c.DeleteMedia(ctx, ids, int32(o.msgType)); err != nil {
+	if err := c.DeleteMedia(ctx, ids); err != nil {
 		return err
 	}
 	fmt.Fprintf(o.out, "Removed %d item(s) from %s.\n", len(ids), name)

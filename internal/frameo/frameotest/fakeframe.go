@@ -48,13 +48,67 @@ type Frame struct {
 	// Library is what a listing reports.
 	Library []*pb.MediaMetaData
 
-	mu       sync.Mutex
-	deleted  []int64
-	photos   []Photo
-	partial  map[int64]*transfer
-	multi    map[int64]*multipart
-	unknown  []int32
-	segments int
+	// GetMediaType is the message number this frame serves photos on.
+	// Configurable for the same reason as ListType.
+	GetMediaType int32
+	// Servable is what the frame will hand out, by media id. A request for
+	// anything else is refused as a missing item.
+	Servable map[int64]Servable
+	// ServeError makes every request answer with this code instead of a photo.
+	ServeError pb.Error_Code
+	// ServeSegmentSize is how much photo data goes in one segment. Zero puts
+	// the whole photo in a single message, which makes the frame split it into
+	// transport-sized parts instead.
+	ServeSegmentSize int
+	// StallFirst leaves this many requests unfinished: the frame sends the
+	// header and StallAfter bytes and then stops talking about it. It is how a
+	// test drives the client's timeout without waiting for anything.
+	StallFirst int
+	// StallAfter is how many bytes a stalled request sends before stopping.
+	StallAfter int
+	// FlushStalled sends an abandoned request's remaining bytes in front of the
+	// next reply, which is the ordering a client that retries has to survive.
+	FlushStalled bool
+	// ResendStalledHeader makes the flush a complete reply rather than the
+	// remaining bytes: the abandoned request's header and its whole stream,
+	// ahead of the reply that was actually asked for. It is how a client is
+	// shown a finished answer to a question it has stopped waiting for.
+	ResendStalledHeader bool
+	// RestartAfter makes the frame give up on its own reply part way through
+	// and begin it again: the header and this many bytes, then the header once
+	// more and the whole photo. Both headers name the photo that was asked
+	// for, so nothing but starting afresh on the second one gets a client
+	// through it.
+	RestartAfter int
+	// ExtraSizeDelta is added to the byte count the header declares for the
+	// thumbnail, so a client can be shown a count it has no reason to expect.
+	ExtraSizeDelta int
+	// WithholdThumbnail describes a thumbnail in the header and then never
+	// sends it, which is the behaviour the protocol notes could not rule out.
+	WithholdThumbnail bool
+	// SizeDelta is added to the byte count the header declares, so a client can
+	// be shown a count that does not match what arrives.
+	SizeDelta int
+
+	mu        sync.Mutex
+	deleted   []int64
+	photos    []Photo
+	partial   map[int64]*transfer
+	multi     map[int64]*multipart
+	unknown   []int32
+	segments  int
+	requests  []*pb.GetMedia
+	stalled   []byte
+	stalledID int64
+	nextMulti int64
+}
+
+// Servable is a photo this frame will hand out when asked for it.
+type Servable struct {
+	Data               []byte
+	Extension          string
+	Thumbnail          []byte // appended after the photo and described in extra
+	ThumbnailExtension string
 }
 
 type transfer struct {
@@ -104,6 +158,26 @@ func (f *Frame) Segments() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.segments
+}
+
+// Served reports the ids the frame was asked for, in order, which is how a test
+// sees that a request was made twice.
+func (f *Frame) Served() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ids := make([]int64, 0, len(f.requests))
+	for _, r := range f.requests {
+		ids = append(ids, r.GetMediaId())
+	}
+	return ids
+}
+
+// Requests reports the download requests as they arrived, so a test can check
+// what was asked for as well as how often.
+func (f *Frame) Requests() []*pb.GetMedia {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]*pb.GetMedia(nil), f.requests...)
 }
 
 // UnknownTypes lists message numbers the frame did not recognise.
@@ -160,6 +234,14 @@ func (f *Frame) handle(rw MessageRW, msg []byte) error {
 			return send(rw, 6, &pb.AcknowledgeReceipt{AcknowledgeId: id})
 		}
 		return nil
+	}
+
+	if f.GetMediaType != 0 && msgType == f.GetMediaType {
+		var req pb.GetMedia
+		if err := proto.Unmarshal(payload, &req); err != nil {
+			return fmt.Errorf("frameotest: malformed media request: %w", err)
+		}
+		return f.serveMedia(rw, &req)
 	}
 
 	if f.VisibilityType != 0 && msgType == f.VisibilityType {
@@ -257,6 +339,143 @@ func (f *Frame) appendSegment(rw MessageRW, seg *pb.MediaDataSegment) error {
 		ack.Error = &pb.Error{Code: pb.Error_Code(7)} // failed to receive the item
 	}
 	return send(rw, 6, ack)
+}
+
+// serveMedia answers a request for one photo: a Media header, then the file
+// itself in MediaDataSegments, then whatever extra streams were described.
+func (f *Frame) serveMedia(rw MessageRW, req *pb.GetMedia) error {
+	f.mu.Lock()
+	f.requests = append(f.requests, req)
+	n := len(f.requests)
+	item, ok := f.Servable[req.GetMediaId()]
+	tail, tailID := f.stalled, f.stalledID
+	if f.FlushStalled {
+		f.stalled, f.stalledID = nil, 0
+	} else {
+		tail = nil
+	}
+	f.mu.Unlock()
+
+	// A real frame interrupted part way through a transfer still has those
+	// bytes to be rid of, and they land in front of the next reply.
+	if len(tail) > 0 {
+		if f.ResendStalledHeader {
+			// A whole reply, not the remainder: a client that took it for the
+			// answer would find the byte count adding up exactly.
+			old := f.Servable[tailID]
+			if err := f.sendInner(rw, 4, f.headerFor(tailID)); err != nil {
+				return err
+			}
+			tail = append(append([]byte(nil), old.Data...), old.Thumbnail...)
+		}
+		if err := f.sendSegments(rw, tail); err != nil {
+			return err
+		}
+	}
+
+	if f.ServeError != 0 || !ok {
+		code := f.ServeError
+		if code == 0 {
+			code = pb.Error_MISSING_MEDIA_ITEM
+		}
+		return f.sendInner(rw, 4, &pb.Media{Id: req.GetMediaId(), Error: &pb.Error{Code: code}})
+	}
+
+	if err := f.sendInner(rw, 4, f.headerFor(req.GetMediaId())); err != nil {
+		return err
+	}
+
+	stream := append([]byte(nil), item.Data...)
+	if !f.WithholdThumbnail {
+		stream = append(stream, item.Thumbnail...)
+	}
+	if cut := min(f.RestartAfter, len(stream)); cut > 0 {
+		if err := f.sendSegments(rw, stream[:cut]); err != nil {
+			return err
+		}
+		if err := f.sendInner(rw, 4, f.headerFor(req.GetMediaId())); err != nil {
+			return err
+		}
+	}
+	if n <= f.StallFirst {
+		cut := min(f.StallAfter, len(stream))
+		f.mu.Lock()
+		f.stalled, f.stalledID = stream[cut:], req.GetMediaId()
+		f.mu.Unlock()
+		return f.sendSegments(rw, stream[:cut])
+	}
+	return f.sendSegments(rw, stream)
+}
+
+// headerFor describes one servable photo the way a real frame announces it.
+func (f *Frame) headerFor(id int64) *pb.Media {
+	item := f.Servable[id]
+	header := &pb.Media{
+		Id:            id,
+		Size:          int32(len(item.Data) + f.SizeDelta),
+		FileExtension: item.Extension,
+		Type:          pb.Media_PICTURE,
+	}
+	if len(item.Thumbnail) > 0 {
+		header.Extra = []*pb.Extra{{
+			Size:          int32(len(item.Thumbnail) + f.ExtraSizeDelta),
+			FileExtension: item.ThumbnailExtension,
+		}}
+	}
+	return header
+}
+
+// sendSegments hands over file data. ServeSegmentSize picks how much goes in
+// each message; a whole photo in one message leaves the splitting to sendInner,
+// which is the other shape a real frame might use.
+func (f *Frame) sendSegments(rw MessageRW, data []byte) error {
+	step := f.ServeSegmentSize
+	if step <= 0 {
+		step = len(data)
+	}
+	for off := 0; off < len(data); off += step {
+		chunk := data[off:min(off+step, len(data))]
+		if err := f.sendInner(rw, 5, &pb.MediaDataSegment{Data: chunk}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sendInner writes one message, splitting it into parts when it is larger than
+// the transport carries. Written out from the protocol description like the
+// rest of this package, rather than sharing the client's splitting, so a
+// mistake there is not repeated here and hidden.
+func (f *Frame) sendInner(rw MessageRW, msgType int32, m proto.Message) error {
+	payload, err := proto.Marshal(m)
+	if err != nil {
+		return err
+	}
+	body := make([]byte, 8+len(payload))
+	binary.BigEndian.PutUint32(body[0:4], 18)
+	binary.BigEndian.PutUint32(body[4:8], uint32(msgType))
+	copy(body[8:], payload)
+
+	if len(body) <= 16416 {
+		return rw.Send(body)
+	}
+	f.mu.Lock()
+	f.nextMulti++
+	id := f.nextMulti
+	f.mu.Unlock()
+	for i := 0; i*16316 < len(body); i++ {
+		end := min((i+1)*16316, len(body))
+		part := &pb.MultiPartMessage{
+			MessageId:   id,
+			MessageSize: int32(len(body)),
+			DataIndex:   int32(i),
+			MessageData: body[i*16316 : end],
+		}
+		if err := send(rw, 30, part); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (f *Frame) reassemble(payload []byte) ([]byte, error) {

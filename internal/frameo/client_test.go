@@ -3,6 +3,8 @@ package frameo_test
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -80,13 +82,25 @@ func testCtx(t *testing.T) context.Context {
 }
 
 // writePhoto creates a file of pseudo-random bytes standing in for a photo.
-func writePhoto(t *testing.T, size int) string {
-	t.Helper()
+// photoBytes makes pseudo-random bytes that begin and end the way a JPEG does,
+// because the client checks that a photo it downloaded is one. Sizes too small
+// to hold the markers are left as they are; nothing downloads those.
+func photoBytes(size int) []byte {
 	data := make([]byte, size)
 	rnd := rand.New(rand.NewPCG(7, uint64(size)))
 	for i := range data {
 		data[i] = byte(rnd.UintN(256))
 	}
+	if size >= 4 {
+		copy(data, []byte{0xff, 0xd8, 0xff})
+		copy(data[size-2:], []byte{0xff, 0xd9})
+	}
+	return data
+}
+
+func writePhoto(t *testing.T, size int) string {
+	t.Helper()
+	data := photoBytes(size)
 	path := filepath.Join(t.TempDir(), "photo.jpg")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
@@ -298,14 +312,14 @@ func TestDeleteMedia(t *testing.T) {
 	c := setup(t, frame)
 	ctx := testCtx(t)
 
-	if err := c.DeleteMedia(ctx, []int64{1, 2}, 0); err != nil {
+	if err := c.DeleteMedia(ctx, []int64{1, 2}); err != nil {
 		t.Fatalf("DeleteMedia: %v", err)
 	}
 	if got := frame.Deleted(); len(got) != 2 || got[0] != 1 || got[1] != 2 {
 		t.Errorf("frame was asked to delete %v, want [1 2]", got)
 	}
 	// Nothing to do is not an error, and must not reach the frame.
-	if err := c.DeleteMedia(ctx, nil, 0); err != nil {
+	if err := c.DeleteMedia(ctx, nil); err != nil {
 		t.Errorf("DeleteMedia with no ids = %v, want nil", err)
 	}
 	if got := frame.Deleted(); len(got) != 2 {
@@ -326,7 +340,7 @@ func TestSetMediaVisible(t *testing.T) {
 	c := setup(t, frame)
 	ctx := testCtx(t)
 
-	if err := c.SetMediaVisible(ctx, []int64{1}, false, 0); err != nil {
+	if err := c.SetMediaVisible(ctx, []int64{1}, false); err != nil {
 		t.Fatalf("SetMediaVisible: %v", err)
 	}
 	items, err := c.ListMedia(ctx)
@@ -343,7 +357,7 @@ func TestSetMediaVisible(t *testing.T) {
 		t.Errorf("photo 2 was hidden too, and should not have been")
 	}
 
-	if err := c.SetMediaVisible(ctx, []int64{1}, true, 0); err != nil {
+	if err := c.SetMediaVisible(ctx, []int64{1}, true); err != nil {
 		t.Fatalf("SetMediaVisible back: %v", err)
 	}
 	if items, err = c.ListMedia(ctx); err != nil {
@@ -351,22 +365,6 @@ func TestSetMediaVisible(t *testing.T) {
 	}
 	if !items[0].GetIsVisible() {
 		t.Errorf("photo 1 was not shown again")
-	}
-}
-
-// An override still wins, so a candidate number can be tried against a real
-// frame without editing the constant.
-func TestSetMediaVisibleHonoursTypeOverride(t *testing.T) {
-	frame := frameotest.New()
-	frame.VisibilityType = 99
-	frame.Library = []*pb.MediaMetaData{{MediaId: 1, IsVisible: true}}
-	c := setup(t, frame)
-
-	if err := c.SetMediaVisible(testCtx(t), []int64{1}, false, 99); err != nil {
-		t.Fatalf("SetMediaVisible: %v", err)
-	}
-	if frame.Library[0].GetIsVisible() {
-		t.Errorf("the frame did not apply the change sent on the override number")
 	}
 }
 
@@ -486,4 +484,375 @@ func mustAck(t *testing.T, id int64, code int32) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// servingFrame is a frame holding one photo under the given id.
+func servingFrame(id int64, data []byte) *frameotest.Frame {
+	frame := frameotest.New()
+	frame.GetMediaType = frameo.TypeGetMedia
+	frame.Servable = map[int64]frameotest.Servable{
+		id: {Data: data, Extension: "jpg"},
+	}
+	return frame
+}
+
+func TestGetMedia(t *testing.T) {
+	// The sizes straddle both boundaries that matter: the segment size the
+	// frame might chunk at, and the largest message the transport carries,
+	// above which a reply arrives in parts and has to be put back together.
+	for _, size := range []int{4, 16000, 16001, 16416, 16417, 100 << 10} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			want := photoBytes(size)
+			frame := servingFrame(7, want)
+			c := setup(t, frame)
+
+			got, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7})
+			if err != nil {
+				t.Fatalf("GetMedia: %v", err)
+			}
+			if !bytes.Equal(got.Data, want) {
+				t.Errorf("got %d bytes, want %d, and they differ", len(got.Data), len(want))
+			}
+			if got.Extension() != "jpg" {
+				t.Errorf("extension = %q, want jpg", got.Extension())
+			}
+			if got.Media.GetId() != 7 {
+				t.Errorf("header names photo %d, want 7", got.Media.GetId())
+			}
+			if len(got.Thumbnail) != 0 {
+				t.Errorf("got %d thumbnail bytes, want none", len(got.Thumbnail))
+			}
+		})
+	}
+}
+
+// TestGetMediaInManySegments covers the other shape a frame might use: the
+// photo arriving as a stream of small messages rather than one large one.
+func TestGetMediaInManySegments(t *testing.T) {
+	want := photoBytes(50000)
+	frame := servingFrame(7, want)
+	frame.ServeSegmentSize = 1000
+	c := setup(t, frame)
+
+	got, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7})
+	if err != nil {
+		t.Fatalf("GetMedia: %v", err)
+	}
+	if !bytes.Equal(got.Data, want) {
+		t.Errorf("the photo came back as %d bytes and differs", len(got.Data))
+	}
+}
+
+// TestGetMediaThumbnail checks the layout the protocol notes were least sure
+// of: the thumbnail following the photo in the same stream, described only by
+// a byte count in the header.
+func TestGetMediaThumbnail(t *testing.T) {
+	want := photoBytes(20000)
+	thumb := photoBytes(3000)
+	frame := servingFrame(7, want)
+	frame.Servable[7] = frameotest.Servable{
+		Data: want, Extension: "jpg",
+		Thumbnail: thumb, ThumbnailExtension: "jpg",
+	}
+	c := setup(t, frame)
+
+	got, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7})
+	if err != nil {
+		t.Fatalf("GetMedia: %v", err)
+	}
+	if !bytes.Equal(got.Data, want) {
+		t.Errorf("the photo is not the %d bytes that were sent", len(want))
+	}
+	if !bytes.Equal(got.Thumbnail, thumb) {
+		t.Errorf("the thumbnail is %d bytes, want %d", len(got.Thumbnail), len(thumb))
+	}
+}
+
+func TestGetMediaScaled(t *testing.T) {
+	frame := servingFrame(7, photoBytes(5000))
+	c := setup(t, frame)
+
+	if _, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7, Bound: 512}); err != nil {
+		t.Fatalf("GetMedia: %v", err)
+	}
+	reqs := frame.Requests()
+	if len(reqs) != 1 {
+		t.Fatalf("the frame saw %d requests, want 1", len(reqs))
+	}
+	if reqs[0].GetWidth() != 512 || reqs[0].GetHeight() != 512 {
+		t.Errorf("asked for %dx%d, want 512x512", reqs[0].GetWidth(), reqs[0].GetHeight())
+	}
+}
+
+// TestGetMediaReportsFrameError also checks that a refusal is not asked again:
+// the frame answered, so a second ask would only spend the timeout over.
+func TestGetMediaReportsFrameError(t *testing.T) {
+	frame := servingFrame(7, photoBytes(5000))
+	frame.ServeError = pb.Error_MISSING_MEDIA_ITEM
+	c := setup(t, frame)
+
+	_, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7})
+	if err == nil {
+		t.Fatal("want an error when the frame refuses")
+	}
+	var refused *frameo.FrameError
+	if !errors.As(err, &refused) {
+		t.Fatalf("want a FrameError, got %T: %v", err, err)
+	}
+	if refused.Code != pb.Error_MISSING_MEDIA_ITEM {
+		t.Errorf("code = %v", refused.Code)
+	}
+	if got := frame.Served(); len(got) != 1 {
+		t.Errorf("the frame was asked %d times, want 1: a refusal is an answer", len(got))
+	}
+	t.Logf("reported: %v", err)
+}
+
+// TestGetMediaRetriesAfterASilentFrame is the test for the retry rule. The
+// frame stops part way through the first request and then, when asked again,
+// sends the bytes it still owed in front of the new reply. Those bytes have to
+// be dropped for want of a header, and the new header has to start the transfer
+// over rather than adding to what was already there.
+func TestGetMediaRetriesAfterASilentFrame(t *testing.T) {
+	want := photoBytes(20000)
+	frame := servingFrame(7, want)
+	frame.StallFirst = 1
+	frame.StallAfter = 1000
+	frame.FlushStalled = true
+	c := setup(t, frame)
+
+	got, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7, Timeout: 200 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("GetMedia: %v", err)
+	}
+	if !bytes.Equal(got.Data, want) {
+		t.Errorf("the photo came back as %d bytes and differs; the abandoned attempt bled into it",
+			len(got.Data))
+	}
+	if n := len(frame.Served()); n != 2 {
+		t.Errorf("the frame was asked %d times, want 2", n)
+	}
+}
+
+// TestGetMediaSurvivesARestartedReply covers the other way two headers can land
+// in one attempt: the frame abandons its own reply part way through and begins
+// it again. Both name the photo that was asked for, so the id check is no help
+// here; only treating a header as the start of a transfer rather than a note in
+// the middle of one gets the whole photo back.
+func TestGetMediaSurvivesARestartedReply(t *testing.T) {
+	want := photoBytes(20000)
+	frame := servingFrame(7, want)
+	frame.RestartAfter = 4000
+	c := setup(t, frame)
+
+	got, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7, Attempts: 1})
+	if err != nil {
+		t.Fatalf("GetMedia: %v", err)
+	}
+	if !bytes.Equal(got.Data, want) {
+		t.Errorf("the photo came back as %d bytes and differs; the abandoned start was counted in",
+			len(got.Data))
+	}
+}
+
+// TestGetMediaIgnoresAnotherPhotosReply is the hazard the batch policy creates:
+// having given up on one photo and moved to the next, a complete reply for the
+// one abandoned arrives first. Taken for the answer it would fill the transfer,
+// the byte count would add up, and the wrong photo would come back under the
+// right id.
+func TestGetMediaIgnoresAnotherPhotosReply(t *testing.T) {
+	seven := photoBytes(20000)
+	eight := photoBytes(9000)
+	frame := servingFrame(7, seven)
+	frame.Servable[8] = frameotest.Servable{Data: eight, Extension: "jpg"}
+	frame.StallFirst = 1
+	frame.StallAfter = 1000
+	frame.FlushStalled = true
+	frame.ResendStalledHeader = true
+	c := setup(t, frame)
+	ctx := testCtx(t)
+
+	// Give up on 7 without retrying, so the next request is for another photo.
+	if _, err := c.GetMedia(ctx, frameo.Fetch{ID: 7, Attempts: 1, Timeout: 200 * time.Millisecond}); err == nil {
+		t.Fatal("want a timeout while the frame is stalled")
+	}
+	got, err := c.GetMedia(ctx, frameo.Fetch{ID: 8, Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("GetMedia(8): %v", err)
+	}
+	if !bytes.Equal(got.Data, eight) {
+		t.Error("photo 8 came back as something else, most likely photo 7")
+	}
+	if got.Media.GetId() != 8 {
+		t.Errorf("the header names photo %d, want 8", got.Media.GetId())
+	}
+}
+
+// TestGetMediaGivesUpAfterTheRetry also checks the client is still usable
+// afterwards: one photo that never arrives must not poison the rest of a batch.
+func TestGetMediaGivesUpAfterTheRetry(t *testing.T) {
+	frame := servingFrame(7, photoBytes(20000))
+	frame.StallFirst = 2
+	frame.StallAfter = 1000
+	c := setup(t, frame)
+	ctx := testCtx(t)
+
+	_, err := c.GetMedia(ctx, frameo.Fetch{ID: 7, Timeout: 200 * time.Millisecond})
+	if !errors.Is(err, frameo.ErrMediaTimeout) {
+		t.Fatalf("want ErrMediaTimeout, got %v", err)
+	}
+	if n := len(frame.Served()); n != 2 {
+		t.Errorf("the frame was asked %d times, want 2", n)
+	}
+	info, err := c.GetInfo(ctx)
+	if err != nil {
+		t.Fatalf("the client did not recover: %v", err)
+	}
+	if info.GetName() != "Test Frame" {
+		t.Errorf("name = %q", info.GetName())
+	}
+}
+
+// TestGetMediaRejectsMoreBytesThanAnnounced guards the assumption the whole
+// transfer rests on. The header's count is the only thing that says when a
+// photo has arrived, so a stream that overruns it has to be refused rather than
+// trimmed to fit: trimming is how a wrong photo gets written to disk.
+func TestGetMediaRejectsMoreBytesThanAnnounced(t *testing.T) {
+	frame := servingFrame(7, photoBytes(5000))
+	frame.SizeDelta = -100
+	c := setup(t, frame)
+
+	if _, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7, Attempts: 1}); err == nil {
+		t.Fatal("want an error when more arrives than was announced")
+	} else {
+		t.Logf("reported: %v", err)
+	}
+}
+
+func TestGetMediaHonoursTypeOverride(t *testing.T) {
+	want := photoBytes(5000)
+	frame := servingFrame(7, want)
+	frame.GetMediaType = 99
+	c := setup(t, frame)
+
+	got, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7, Type: 99})
+	if err != nil {
+		t.Fatalf("GetMedia: %v", err)
+	}
+	if !bytes.Equal(got.Data, want) {
+		t.Error("the photo sent on the override number did not come back")
+	}
+}
+
+// TestGetMediaRejectsANegativeExtra guards a header that describes a thumbnail
+// as fewer than no bytes. The total would then be smaller than the photo, and
+// the photo would be taken from past the end of what arrived.
+func TestGetMediaRejectsANegativeExtra(t *testing.T) {
+	frame := servingFrame(7, photoBytes(5000))
+	frame.Servable[7] = frameotest.Servable{
+		Data: photoBytes(5000), Extension: "jpg",
+		Thumbnail: photoBytes(1000), ThumbnailExtension: "jpg",
+	}
+	// The photo is 5000 bytes and the thumbnail is described as -2000, so the
+	// total the header asks for is 3000: fewer than the photo. Stopping at
+	// exactly that many is what makes the shortfall reachable, since more than
+	// the total is refused as an overrun before it can do any harm.
+	frame.ExtraSizeDelta = -3000
+	frame.StallFirst = 1
+	frame.StallAfter = 3000
+	c := setup(t, frame)
+
+	if _, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7, Attempts: 1, Timeout: 200 * time.Millisecond}); err == nil {
+		t.Fatal("want an error for an extra stream of negative size")
+	} else {
+		t.Logf("reported: %v", err)
+	}
+}
+
+// TestGetMediaTakesThePhotoWhenTheThumbnailNeverComes covers the assumption the
+// protocol notes could not settle. If a frame describes a thumbnail it does not
+// then send, waiting for the full count would make every photo that has one
+// impossible to fetch. The photo itself is complete, so it is taken.
+func TestGetMediaTakesThePhotoWhenTheThumbnailNeverComes(t *testing.T) {
+	want := photoBytes(8000)
+	frame := servingFrame(7, want)
+	frame.Servable[7] = frameotest.Servable{
+		Data: want, Extension: "jpg",
+		Thumbnail: photoBytes(2000), ThumbnailExtension: "jpg",
+	}
+	frame.WithholdThumbnail = true
+	c := setup(t, frame)
+
+	got, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7, Attempts: 1, Timeout: 200 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("GetMedia: %v", err)
+	}
+	if !bytes.Equal(got.Data, want) {
+		t.Error("the photo did not come back whole")
+	}
+	if len(got.Thumbnail) != 0 {
+		t.Errorf("got %d thumbnail bytes, want none: the frame never sent it", len(got.Thumbnail))
+	}
+}
+
+// TestGetMediaAcceptsAJPEGWithTrailingBytes checks the end-marker rule is a
+// note and not a refusal: real JPEGs carry data after the end marker, and the
+// byte count has already proved the photo arrived whole.
+func TestGetMediaAcceptsAJPEGWithTrailingBytes(t *testing.T) {
+	want := append(photoBytes(5000), 0x00, 0x11, 0x22)
+	frame := servingFrame(7, want)
+	c := setup(t, frame)
+
+	got, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7})
+	if err != nil {
+		t.Fatalf("GetMedia: %v", err)
+	}
+	if !bytes.Equal(got.Data, want) {
+		t.Error("the photo did not come back as it was sent")
+	}
+}
+
+// TestGetMediaAcceptsAFormatItCannotCheck makes sure the JPEG check is only
+// asked of photos the frame called JPEGs. The frame serves other formats, and
+// one of those must not be refused for failing to look like a JPEG.
+func TestGetMediaAcceptsAFormatItCannotCheck(t *testing.T) {
+	want := []byte("RIFF....WEBPVP8 and then some payload bytes")
+	frame := servingFrame(7, want)
+	frame.Servable[7] = frameotest.Servable{Data: want, Extension: "webp"}
+	c := setup(t, frame)
+
+	got, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7})
+	if err != nil {
+		t.Fatalf("GetMedia: %v", err)
+	}
+	if got.Extension() != "webp" {
+		t.Errorf("extension = %q, want webp", got.Extension())
+	}
+	if !bytes.Equal(got.Data, want) {
+		t.Error("the photo did not come back as it was sent")
+	}
+}
+
+// TestGetMediaRefusesADestructiveMessageNumber covers the sharp edge of the one
+// override that is left. A fetch and a deletion serialise to the same bytes, so
+// a number borrowed from the wrong command destroys the photo it was meant to
+// copy.
+func TestGetMediaRefusesADestructiveMessageNumber(t *testing.T) {
+	for _, msgType := range []int32{frameo.TypeDeleteMedia, frameo.TypeChangeMediaVisibility} {
+		frame := servingFrame(7, photoBytes(2000))
+		frame.DeleteType = frameo.TypeDeleteMedia
+		frame.VisibilityType = frameo.TypeChangeMediaVisibility
+		frame.Library = []*pb.MediaMetaData{{MediaId: 7, IsVisible: true}}
+		c := setup(t, frame)
+
+		if _, err := c.GetMedia(testCtx(t), frameo.Fetch{ID: 7, Type: msgType}); err == nil {
+			t.Errorf("Fetch.Type = %d was accepted", msgType)
+		}
+		if got := frame.Deleted(); len(got) != 0 {
+			t.Errorf("Fetch.Type = %d had the frame delete %v", msgType, got)
+		}
+		if got := frame.Served(); len(got) != 0 {
+			t.Errorf("Fetch.Type = %d reached the frame at all: %v", msgType, got)
+		}
+	}
 }

@@ -139,19 +139,47 @@ func (Media_ScaleType) EnumDescriptor() ([]byte, []int) {
 	return file_frameo_proto_rawDescGZIP(), []int{0, 1}
 }
 
+// Recovered from the v1.40.5 decompile; frame->client only.
 type Error_Code int32
 
 const (
-	Error_OK Error_Code = 0
+	Error_NONE                      Error_Code = 0
+	Error_UNAUTHORIZED              Error_Code = 1
+	Error_SERVER_ERROR              Error_Code = 2
+	Error_BAD_REQUEST               Error_Code = 3
+	Error_GENERIC_FAILURE           Error_Code = 4
+	Error_MISSING_PERMISSION        Error_Code = 5
+	Error_MISSING_MEDIA_ITEM        Error_Code = 6
+	Error_FAILED_SENDING_MEDIA_ITEM Error_Code = 7
+	Error_NOT_FOUND                 Error_Code = 8
+	Error_DECLINED                  Error_Code = 9
 )
 
 // Enum value maps for Error_Code.
 var (
 	Error_Code_name = map[int32]string{
-		0: "OK",
+		0: "NONE",
+		1: "UNAUTHORIZED",
+		2: "SERVER_ERROR",
+		3: "BAD_REQUEST",
+		4: "GENERIC_FAILURE",
+		5: "MISSING_PERMISSION",
+		6: "MISSING_MEDIA_ITEM",
+		7: "FAILED_SENDING_MEDIA_ITEM",
+		8: "NOT_FOUND",
+		9: "DECLINED",
 	}
 	Error_Code_value = map[string]int32{
-		"OK": 0,
+		"NONE":                      0,
+		"UNAUTHORIZED":              1,
+		"SERVER_ERROR":              2,
+		"BAD_REQUEST":               3,
+		"GENERIC_FAILURE":           4,
+		"MISSING_PERMISSION":        5,
+		"MISSING_MEDIA_ITEM":        6,
+		"FAILED_SENDING_MEDIA_ITEM": 7,
+		"NOT_FOUND":                 8,
+		"DECLINED":                  9,
 	}
 )
 
@@ -179,7 +207,7 @@ func (x Error_Code) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Error_Code.Descriptor instead.
 func (Error_Code) EnumDescriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{8, 0}
+	return file_frameo_proto_rawDescGZIP(), []int{9, 0}
 }
 
 type FrameInfo_HasBackup int32
@@ -222,7 +250,7 @@ func (x FrameInfo_HasBackup) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FrameInfo_HasBackup.Descriptor instead.
 func (FrameInfo_HasBackup) EnumDescriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{10, 0}
+	return file_frameo_proto_rawDescGZIP(), []int{11, 0}
 }
 
 type Media struct {
@@ -463,6 +491,70 @@ func (x *MediaDataSegment) GetRequiresAcknowledgeReceiptId() int64 {
 	return 0
 }
 
+// Ask the frame for one stored photo. The frame answers with a Media header
+// followed by MediaDataSegment bytes -- the same pair the upload path uses,
+// pointed the other way. Leave width/height at zero for the full-resolution
+// file; set both to a square bound to have the frame scale it first.
+type GetMedia struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MediaId       int64                  `protobuf:"zigzag64,1,opt,name=media_id,json=mediaId,proto3" json:"media_id,omitempty"`
+	Width         int32                  `protobuf:"varint,2,opt,name=width,proto3" json:"width,omitempty"`
+	Height        int32                  `protobuf:"varint,3,opt,name=height,proto3" json:"height,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetMedia) Reset() {
+	*x = GetMedia{}
+	mi := &file_frameo_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetMedia) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetMedia) ProtoMessage() {}
+
+func (x *GetMedia) ProtoReflect() protoreflect.Message {
+	mi := &file_frameo_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetMedia.ProtoReflect.Descriptor instead.
+func (*GetMedia) Descriptor() ([]byte, []int) {
+	return file_frameo_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *GetMedia) GetMediaId() int64 {
+	if x != nil {
+		return x.MediaId
+	}
+	return 0
+}
+
+func (x *GetMedia) GetWidth() int32 {
+	if x != nil {
+		return x.Width
+	}
+	return 0
+}
+
+func (x *GetMedia) GetHeight() int32 {
+	if x != nil {
+		return x.Height
+	}
+	return 0
+}
+
 type MediaUpdate struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Media         *Media                 `protobuf:"bytes,1,opt,name=media,proto3" json:"media,omitempty"`
@@ -472,7 +564,7 @@ type MediaUpdate struct {
 
 func (x *MediaUpdate) Reset() {
 	*x = MediaUpdate{}
-	mi := &file_frameo_proto_msgTypes[3]
+	mi := &file_frameo_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -484,7 +576,7 @@ func (x *MediaUpdate) String() string {
 func (*MediaUpdate) ProtoMessage() {}
 
 func (x *MediaUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_frameo_proto_msgTypes[3]
+	mi := &file_frameo_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -497,7 +589,7 @@ func (x *MediaUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MediaUpdate.ProtoReflect.Descriptor instead.
 func (*MediaUpdate) Descriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{3}
+	return file_frameo_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *MediaUpdate) GetMedia() *Media {
@@ -518,7 +610,7 @@ type ResumeTransfer struct {
 
 func (x *ResumeTransfer) Reset() {
 	*x = ResumeTransfer{}
-	mi := &file_frameo_proto_msgTypes[4]
+	mi := &file_frameo_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -530,7 +622,7 @@ func (x *ResumeTransfer) String() string {
 func (*ResumeTransfer) ProtoMessage() {}
 
 func (x *ResumeTransfer) ProtoReflect() protoreflect.Message {
-	mi := &file_frameo_proto_msgTypes[4]
+	mi := &file_frameo_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -543,7 +635,7 @@ func (x *ResumeTransfer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeTransfer.ProtoReflect.Descriptor instead.
 func (*ResumeTransfer) Descriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{4}
+	return file_frameo_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ResumeTransfer) GetMediaId() int64 {
@@ -571,7 +663,7 @@ type ResumeTransferResponse struct {
 
 func (x *ResumeTransferResponse) Reset() {
 	*x = ResumeTransferResponse{}
-	mi := &file_frameo_proto_msgTypes[5]
+	mi := &file_frameo_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -583,7 +675,7 @@ func (x *ResumeTransferResponse) String() string {
 func (*ResumeTransferResponse) ProtoMessage() {}
 
 func (x *ResumeTransferResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_frameo_proto_msgTypes[5]
+	mi := &file_frameo_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -596,7 +688,7 @@ func (x *ResumeTransferResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeTransferResponse.ProtoReflect.Descriptor instead.
 func (*ResumeTransferResponse) Descriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{5}
+	return file_frameo_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ResumeTransferResponse) GetMediaId() int64 {
@@ -636,7 +728,7 @@ type MultiPartMessage struct {
 
 func (x *MultiPartMessage) Reset() {
 	*x = MultiPartMessage{}
-	mi := &file_frameo_proto_msgTypes[6]
+	mi := &file_frameo_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -648,7 +740,7 @@ func (x *MultiPartMessage) String() string {
 func (*MultiPartMessage) ProtoMessage() {}
 
 func (x *MultiPartMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_frameo_proto_msgTypes[6]
+	mi := &file_frameo_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -661,7 +753,7 @@ func (x *MultiPartMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiPartMessage.ProtoReflect.Descriptor instead.
 func (*MultiPartMessage) Descriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{6}
+	return file_frameo_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *MultiPartMessage) GetMessageId() int64 {
@@ -705,7 +797,7 @@ type AcknowledgeReceipt struct {
 
 func (x *AcknowledgeReceipt) Reset() {
 	*x = AcknowledgeReceipt{}
-	mi := &file_frameo_proto_msgTypes[7]
+	mi := &file_frameo_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -717,7 +809,7 @@ func (x *AcknowledgeReceipt) String() string {
 func (*AcknowledgeReceipt) ProtoMessage() {}
 
 func (x *AcknowledgeReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_frameo_proto_msgTypes[7]
+	mi := &file_frameo_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -730,7 +822,7 @@ func (x *AcknowledgeReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcknowledgeReceipt.ProtoReflect.Descriptor instead.
 func (*AcknowledgeReceipt) Descriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{7}
+	return file_frameo_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *AcknowledgeReceipt) GetAcknowledgeId() int64 {
@@ -757,7 +849,7 @@ type Error struct {
 
 func (x *Error) Reset() {
 	*x = Error{}
-	mi := &file_frameo_proto_msgTypes[8]
+	mi := &file_frameo_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -769,7 +861,7 @@ func (x *Error) String() string {
 func (*Error) ProtoMessage() {}
 
 func (x *Error) ProtoReflect() protoreflect.Message {
-	mi := &file_frameo_proto_msgTypes[8]
+	mi := &file_frameo_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -782,14 +874,14 @@ func (x *Error) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Error.ProtoReflect.Descriptor instead.
 func (*Error) Descriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{8}
+	return file_frameo_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Error) GetCode() Error_Code {
 	if x != nil {
 		return x.Code
 	}
-	return Error_OK
+	return Error_NONE
 }
 
 func (x *Error) GetAdditionalInt() int32 {
@@ -810,7 +902,7 @@ type GetInfo struct {
 
 func (x *GetInfo) Reset() {
 	*x = GetInfo{}
-	mi := &file_frameo_proto_msgTypes[9]
+	mi := &file_frameo_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -822,7 +914,7 @@ func (x *GetInfo) String() string {
 func (*GetInfo) ProtoMessage() {}
 
 func (x *GetInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_frameo_proto_msgTypes[9]
+	mi := &file_frameo_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -835,7 +927,7 @@ func (x *GetInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetInfo.ProtoReflect.Descriptor instead.
 func (*GetInfo) Descriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{9}
+	return file_frameo_proto_rawDescGZIP(), []int{10}
 }
 
 type FrameInfo struct {
@@ -859,7 +951,7 @@ type FrameInfo struct {
 
 func (x *FrameInfo) Reset() {
 	*x = FrameInfo{}
-	mi := &file_frameo_proto_msgTypes[10]
+	mi := &file_frameo_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -871,7 +963,7 @@ func (x *FrameInfo) String() string {
 func (*FrameInfo) ProtoMessage() {}
 
 func (x *FrameInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_frameo_proto_msgTypes[10]
+	mi := &file_frameo_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -884,7 +976,7 @@ func (x *FrameInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FrameInfo.ProtoReflect.Descriptor instead.
 func (*FrameInfo) Descriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{10}
+	return file_frameo_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *FrameInfo) GetName() string {
@@ -988,7 +1080,7 @@ type FrameCapabilities struct {
 
 func (x *FrameCapabilities) Reset() {
 	*x = FrameCapabilities{}
-	mi := &file_frameo_proto_msgTypes[11]
+	mi := &file_frameo_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1000,7 +1092,7 @@ func (x *FrameCapabilities) String() string {
 func (*FrameCapabilities) ProtoMessage() {}
 
 func (x *FrameCapabilities) ProtoReflect() protoreflect.Message {
-	mi := &file_frameo_proto_msgTypes[11]
+	mi := &file_frameo_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1013,7 +1105,7 @@ func (x *FrameCapabilities) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FrameCapabilities.ProtoReflect.Descriptor instead.
 func (*FrameCapabilities) Descriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{11}
+	return file_frameo_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *FrameCapabilities) GetMaxVideoWidth() int32 {
@@ -1040,7 +1132,7 @@ type AsyncInformation struct {
 
 func (x *AsyncInformation) Reset() {
 	*x = AsyncInformation{}
-	mi := &file_frameo_proto_msgTypes[12]
+	mi := &file_frameo_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1052,7 +1144,7 @@ func (x *AsyncInformation) String() string {
 func (*AsyncInformation) ProtoMessage() {}
 
 func (x *AsyncInformation) ProtoReflect() protoreflect.Message {
-	mi := &file_frameo_proto_msgTypes[12]
+	mi := &file_frameo_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1065,7 +1157,7 @@ func (x *AsyncInformation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AsyncInformation.ProtoReflect.Descriptor instead.
 func (*AsyncInformation) Descriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{12}
+	return file_frameo_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *AsyncInformation) GetChiaId() string {
@@ -1093,7 +1185,7 @@ type ClientInfo struct {
 
 func (x *ClientInfo) Reset() {
 	*x = ClientInfo{}
-	mi := &file_frameo_proto_msgTypes[13]
+	mi := &file_frameo_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1105,7 +1197,7 @@ func (x *ClientInfo) String() string {
 func (*ClientInfo) ProtoMessage() {}
 
 func (x *ClientInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_frameo_proto_msgTypes[13]
+	mi := &file_frameo_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1118,7 +1210,7 @@ func (x *ClientInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientInfo.ProtoReflect.Descriptor instead.
 func (*ClientInfo) Descriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{13}
+	return file_frameo_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ClientInfo) GetName() string {
@@ -1152,7 +1244,7 @@ type EncryptedData struct {
 
 func (x *EncryptedData) Reset() {
 	*x = EncryptedData{}
-	mi := &file_frameo_proto_msgTypes[14]
+	mi := &file_frameo_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1164,7 +1256,7 @@ func (x *EncryptedData) String() string {
 func (*EncryptedData) ProtoMessage() {}
 
 func (x *EncryptedData) ProtoReflect() protoreflect.Message {
-	mi := &file_frameo_proto_msgTypes[14]
+	mi := &file_frameo_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1177,7 +1269,7 @@ func (x *EncryptedData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EncryptedData.ProtoReflect.Descriptor instead.
 func (*EncryptedData) Descriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{14}
+	return file_frameo_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *EncryptedData) GetNonce() []byte {
@@ -1204,7 +1296,7 @@ type PairingCode struct {
 
 func (x *PairingCode) Reset() {
 	*x = PairingCode{}
-	mi := &file_frameo_proto_msgTypes[15]
+	mi := &file_frameo_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1216,7 +1308,7 @@ func (x *PairingCode) String() string {
 func (*PairingCode) ProtoMessage() {}
 
 func (x *PairingCode) ProtoReflect() protoreflect.Message {
-	mi := &file_frameo_proto_msgTypes[15]
+	mi := &file_frameo_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1229,7 +1321,7 @@ func (x *PairingCode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PairingCode.ProtoReflect.Descriptor instead.
 func (*PairingCode) Descriptor() ([]byte, []int) {
-	return file_frameo_proto_rawDescGZIP(), []int{15}
+	return file_frameo_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *PairingCode) GetPairingCode() string {
@@ -1286,7 +1378,11 @@ const file_frameo_proto_rawDesc = "" +
 	"\x0efile_extension\x18\x02 \x01(\tR\rfileExtension\"m\n" +
 	"\x10MediaDataSegment\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12E\n" +
-	"\x1frequires_acknowledge_receipt_id\x18\x10 \x01(\x03R\x1crequiresAcknowledgeReceiptId\"2\n" +
+	"\x1frequires_acknowledge_receipt_id\x18\x10 \x01(\x03R\x1crequiresAcknowledgeReceiptId\"S\n" +
+	"\bGetMedia\x12\x19\n" +
+	"\bmedia_id\x18\x01 \x01(\x12R\amediaId\x12\x14\n" +
+	"\x05width\x18\x02 \x01(\x05R\x05width\x12\x16\n" +
+	"\x06height\x18\x03 \x01(\x05R\x06height\"2\n" +
 	"\vMediaUpdate\x12#\n" +
 	"\x05media\x18\x01 \x01(\v2\r.frameo.MediaR\x05media\"J\n" +
 	"\x0eResumeTransfer\x12\x19\n" +
@@ -1307,12 +1403,21 @@ const file_frameo_proto_rawDesc = "" +
 	"\fmessage_data\x18\x04 \x01(\fR\vmessageData\"`\n" +
 	"\x12AcknowledgeReceipt\x12%\n" +
 	"\x0eacknowledge_id\x18\x01 \x01(\x03R\racknowledgeId\x12#\n" +
-	"\x05error\x18\x02 \x01(\v2\r.frameo.ErrorR\x05error\"f\n" +
+	"\x05error\x18\x02 \x01(\v2\r.frameo.ErrorR\x05error\"\x9f\x02\n" +
 	"\x05Error\x12&\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x12.frameo.Error.CodeR\x04code\x12%\n" +
-	"\x0eadditional_int\x18\x02 \x01(\x05R\radditionalInt\"\x0e\n" +
-	"\x04Code\x12\x06\n" +
-	"\x02OK\x10\x00\"\t\n" +
+	"\x0eadditional_int\x18\x02 \x01(\x05R\radditionalInt\"\xc6\x01\n" +
+	"\x04Code\x12\b\n" +
+	"\x04NONE\x10\x00\x12\x10\n" +
+	"\fUNAUTHORIZED\x10\x01\x12\x10\n" +
+	"\fSERVER_ERROR\x10\x02\x12\x0f\n" +
+	"\vBAD_REQUEST\x10\x03\x12\x13\n" +
+	"\x0fGENERIC_FAILURE\x10\x04\x12\x16\n" +
+	"\x12MISSING_PERMISSION\x10\x05\x12\x16\n" +
+	"\x12MISSING_MEDIA_ITEM\x10\x06\x12\x1d\n" +
+	"\x19FAILED_SENDING_MEDIA_ITEM\x10\a\x12\r\n" +
+	"\tNOT_FOUND\x10\b\x12\f\n" +
+	"\bDECLINED\x10\t\"\t\n" +
 	"\aGetInfo\"\xb5\x05\n" +
 	"\tFrameInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
@@ -1364,7 +1469,7 @@ func file_frameo_proto_rawDescGZIP() []byte {
 }
 
 var file_frameo_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_frameo_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_frameo_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_frameo_proto_goTypes = []any{
 	(Media_Type)(0),                // 0: frameo.Media.Type
 	(Media_ScaleType)(0),           // 1: frameo.Media.ScaleType
@@ -1373,31 +1478,32 @@ var file_frameo_proto_goTypes = []any{
 	(*Media)(nil),                  // 4: frameo.Media
 	(*Extra)(nil),                  // 5: frameo.Extra
 	(*MediaDataSegment)(nil),       // 6: frameo.MediaDataSegment
-	(*MediaUpdate)(nil),            // 7: frameo.MediaUpdate
-	(*ResumeTransfer)(nil),         // 8: frameo.ResumeTransfer
-	(*ResumeTransferResponse)(nil), // 9: frameo.ResumeTransferResponse
-	(*MultiPartMessage)(nil),       // 10: frameo.MultiPartMessage
-	(*AcknowledgeReceipt)(nil),     // 11: frameo.AcknowledgeReceipt
-	(*Error)(nil),                  // 12: frameo.Error
-	(*GetInfo)(nil),                // 13: frameo.GetInfo
-	(*FrameInfo)(nil),              // 14: frameo.FrameInfo
-	(*FrameCapabilities)(nil),      // 15: frameo.FrameCapabilities
-	(*AsyncInformation)(nil),       // 16: frameo.AsyncInformation
-	(*ClientInfo)(nil),             // 17: frameo.ClientInfo
-	(*EncryptedData)(nil),          // 18: frameo.EncryptedData
-	(*PairingCode)(nil),            // 19: frameo.PairingCode
+	(*GetMedia)(nil),               // 7: frameo.GetMedia
+	(*MediaUpdate)(nil),            // 8: frameo.MediaUpdate
+	(*ResumeTransfer)(nil),         // 9: frameo.ResumeTransfer
+	(*ResumeTransferResponse)(nil), // 10: frameo.ResumeTransferResponse
+	(*MultiPartMessage)(nil),       // 11: frameo.MultiPartMessage
+	(*AcknowledgeReceipt)(nil),     // 12: frameo.AcknowledgeReceipt
+	(*Error)(nil),                  // 13: frameo.Error
+	(*GetInfo)(nil),                // 14: frameo.GetInfo
+	(*FrameInfo)(nil),              // 15: frameo.FrameInfo
+	(*FrameCapabilities)(nil),      // 16: frameo.FrameCapabilities
+	(*AsyncInformation)(nil),       // 17: frameo.AsyncInformation
+	(*ClientInfo)(nil),             // 18: frameo.ClientInfo
+	(*EncryptedData)(nil),          // 19: frameo.EncryptedData
+	(*PairingCode)(nil),            // 20: frameo.PairingCode
 }
 var file_frameo_proto_depIdxs = []int32{
 	0,  // 0: frameo.Media.type:type_name -> frameo.Media.Type
 	5,  // 1: frameo.Media.extra:type_name -> frameo.Extra
-	12, // 2: frameo.Media.error:type_name -> frameo.Error
+	13, // 2: frameo.Media.error:type_name -> frameo.Error
 	1,  // 3: frameo.Media.scale_type:type_name -> frameo.Media.ScaleType
 	4,  // 4: frameo.MediaUpdate.media:type_name -> frameo.Media
-	12, // 5: frameo.AcknowledgeReceipt.error:type_name -> frameo.Error
+	13, // 5: frameo.AcknowledgeReceipt.error:type_name -> frameo.Error
 	2,  // 6: frameo.Error.code:type_name -> frameo.Error.Code
 	3,  // 7: frameo.FrameInfo.has_backup:type_name -> frameo.FrameInfo.HasBackup
-	15, // 8: frameo.FrameInfo.frame_capabilities:type_name -> frameo.FrameCapabilities
-	16, // 9: frameo.FrameInfo.async_information:type_name -> frameo.AsyncInformation
+	16, // 8: frameo.FrameInfo.frame_capabilities:type_name -> frameo.FrameCapabilities
+	17, // 9: frameo.FrameInfo.async_information:type_name -> frameo.AsyncInformation
 	10, // [10:10] is the sub-list for method output_type
 	10, // [10:10] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
@@ -1416,7 +1522,7 @@ func file_frameo_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_frameo_proto_rawDesc), len(file_frameo_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   16,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
