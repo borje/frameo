@@ -86,7 +86,7 @@ func dialOne(ctx context.Context, ep Endpoint, id *Identity, o *Options) (*Grid,
 		done:    make(chan struct{}),
 	}
 
-	if err := c.handshake(modeGrid, nil, &id.Public, &id.Private, certificateBlob(o.Certificate)); err != nil {
+	if err := c.handshakeAny(modeGrid, o.ServerKeys, &id.Public, &id.Private, certificateBlob(o.Certificate)); err != nil {
 		_ = c.close()
 		return nil, err
 	}

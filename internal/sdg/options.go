@@ -28,6 +28,10 @@ type Options struct {
 	// MaxMessage is the largest message accepted or sent on a peer connection.
 	// Defaults to FrameoMaxMessage.
 	MaxMessage int
+	// ServerKeys, when non-empty, is the set of long-term keys a grid server
+	// may present. Any other key ends the connection. Leaving it empty accepts
+	// whatever answers, which is only appropriate against a test server.
+	ServerKeys []Key
 	// Certificate is the licence key appended to the VOCH packet of a grid
 	// connection. Nil means an unlicensed client, which is what the reference
 	// implementation sends and what the grid has been observed to accept.

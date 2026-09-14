@@ -24,6 +24,20 @@ var FrameoServers = []Endpoint{
 	{Host: "198.199.110.111", Port: 443},
 }
 
+// FrameoServerKey is the long-term public key of the Frameo grid servers. The
+// app ships this value as the one server certificate it will accept, and a
+// live connection confirms the grid presents exactly it. Pinning it means a
+// grid server cannot be impersonated by whoever controls the name resolution.
+var FrameoServerKey = mustKey("579b1d8476a9fcdef9a3acdea4d3ddd91d9f9c228762a1c08a5b45cff933f015")
+
+func mustKey(s string) Key {
+	k, err := ParseKey(s)
+	if err != nil {
+		panic(err)
+	}
+	return k
+}
+
 // DanfossServers is the well-known DEVISmart grid, useful for checking the
 // transport against a second, independent SDG deployment.
 var DanfossServers = []Endpoint{

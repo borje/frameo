@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
@@ -181,6 +182,17 @@ func (c *conn) dump(what string, b []byte) {
 //
 // cert is appended to VOCH; it is non-empty only for grid connections.
 func (c *conn) handshake(m mode, expect *Key, longPK, longSK *Key, cert []byte) error {
+	var allowed []Key
+	if expect != nil {
+		allowed = []Key{*expect}
+	}
+	return c.handshakeAny(m, allowed, longPK, longSK, cert)
+}
+
+// handshakeAny is handshake with a set of acceptable remote keys rather than a
+// single one, which is what pinning a grid's servers needs. An empty set
+// accepts any key.
+func (c *conn) handshakeAny(m mode, allowed []Key, longPK, longSK *Key, cert []byte) error {
 	if err := c.writeBody(tellPacket()); err != nil {
 		return fmt.Errorf("sdg: %s: send TELL: %w", c.role, err)
 	}
@@ -192,9 +204,9 @@ func (c *conn) handshake(m mode, expect *Key, longPK, longSK *Key, cert []byte) 
 	if c.serverLongPK, err = decodeWelc(payload); err != nil {
 		return fmt.Errorf("sdg: %s: %w", c.role, err)
 	}
-	if expect != nil && c.serverLongPK != *expect {
-		return fmt.Errorf("sdg: %s: %w: asked for %s, got %s",
-			c.role, ErrKeyMismatch, expect, c.serverLongPK)
+	if len(allowed) > 0 && !slices.Contains(allowed, c.serverLongPK) {
+		return fmt.Errorf("sdg: %s: %w: %s is not among the %d key(s) we accept",
+			c.role, ErrKeyMismatch, c.serverLongPK, len(allowed))
 	}
 	c.log.Debug("remote identified", "conn", c.role, "key", c.serverLongPK.String())
 
