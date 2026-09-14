@@ -9,7 +9,7 @@ can be fed from a script or a server instead of from the phone app.
 
     frameo pair 12345678      # once, with the code the frame is showing
     frameo info               # what the frame is and how big its screen is
-    frameo send photo.jpg     # send a photo
+    frameo send photo.jpg     # send a photo, named by path or by URL
     frameo list               # what is on the frame
     frameo get 12345          # copy one back off the frame
     frameo delete 12345       # remove one
