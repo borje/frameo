@@ -1,0 +1,103 @@
+syntax = "proto2";
+
+package sdgcontrol;
+option go_package = "frameo/internal/sdg/control";
+
+// MSG_FORWARD_REMOTE
+message ForwardRemote
+{
+  required fixed32 magic         = 1; // FORWARD_REMOTE_MAGIC
+  required uint32  protocolMajor = 2; // Protocol version
+  required uint32  protocolMinor = 3;
+  required bytes   tunnelId      = 4; // Tunnel ID from MSG_REMOTE_REPLY
+  required string  signature     = 5; // "Mdg-NaCl/binary"
+}
+
+// MSG_PROTOCOL_VERSION
+message Property
+{
+  required string key   = 1;
+  required string value = 2;
+}
+
+message ProtocolVersion
+{
+  required fixed32  magic      = 1;
+  required uint32   major      = 2;
+  required uint32   minor      = 3;
+  repeated Property properties = 4;
+}
+
+// MSG_PING
+message Ping
+{
+  required uint32 seq  = 1;
+  optional uint32 delay = 2;
+}
+
+// MSG_PONG
+message Pong
+{
+  required uint32 seq = 1;
+}
+
+// MSG_FORWARD_REPLY
+message ForwardReply
+{
+  required string signature = 1;
+}
+
+// MSG_FORWARD_ERROR
+message ForwardError
+{
+  required uint32 code = 1;
+}
+
+// MSG_CALL_REMOTE
+message ConnectToPeer
+{
+  required uint32 id       = 1;
+  required string peerId   = 2;
+  required string protocol = 3;
+}
+
+// MSG_REMOTE_REPLY, MSG_PAIR_REMOTE_REPLY
+message PeerInfo
+{
+  required string peerId = 3;
+  message ForwardHost
+  {
+    required string host = 1;
+    required uint32 port = 2;
+  }
+  required ForwardHost server   = 4;
+  required bytes       tunnelId = 5;
+}
+message PeerReply
+{
+  required uint32 id     = 1;
+  required uint32 result = 2; // 0 = OK, 1 = refuse
+  optional PeerInfo peer = 3;
+}
+
+// MSG_INCOMING_CALL
+message IncomingCall
+{
+  required uint32   id       = 1;
+  required PeerInfo peer     = 2;
+  required string   protocol = 3;
+}
+
+// MSG_INCOMING_CALL_REPLY
+message IncomingCallReply
+{
+  required uint32 id     = 1;
+  required uint32 result = 2; // 1 = accept; 0 = refuse
+}
+
+// MSG_PAIR_REMOTE
+message PairRemote
+{
+  required uint32 id  = 1;
+  required string otp = 2;
+}

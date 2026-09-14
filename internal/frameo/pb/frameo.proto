@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+// Frameo app-layer protocol, reconstructed from net.frameo.app v1.40.5 (jadx).
+// Field numbers/types decoded from GeneratedMessageLite newMessageInfo strings.
+// NOTE: several 64-bit ids are sint64 (zigzag) on the wire — do NOT change to
+// int64 or decoding breaks. Verified against the decompiled info strings.
+
+package frameo;
+option go_package = "frameo/internal/frameo/pb";
+
+// ======================================================================
+// Media transfer (the photo-send path)   -- from PBMediaTransfer
+// ======================================================================
+
+message Media {
+  int32     size          = 1;   // TOTAL bytes of the full file (receiver waits for this many)
+  string    caption       = 2;
+  float     center_point_x = 3;  // crop focus, 0..1
+  float     center_point_y = 4;
+  string    file_extension = 5;  // e.g. "jpg"
+  sint64    id            = 6;   // client-chosen media id; keys the transfer + cache file
+  Type      type          = 7;
+  repeated  Extra extra   = 8;   // thumbnail descriptor(s); extra[0].size = thumb byte count
+  sint64    capture_date  = 9;   // epoch millis
+  sint64    content_id    = 10;
+  Error     error         = 11;
+  ScaleType scale_type    = 12;
+
+  enum Type {
+    PICTURE           = 0;
+    PROFILE_PICTURE   = 1;
+    VIDEO_WITH_THUMB  = 2;
+    PICTURE_THUMB     = 3;
+    GREETING          = 4;
+    GREETING_THUMB    = 5;
+    VIDEO_THUMB       = 6;
+    VIDEO_THUMB_FULL  = 7;
+  }
+  enum ScaleType {
+    NONE              = 0;
+    FIT_INSIDE        = 1;
+    CENTER_POINT_CROP = 2;
+  }
+}
+
+message Extra {
+  int32  size           = 1;   // byte count of this extra stream (e.g. thumbnail)
+  string file_extension = 2;
+}
+
+// The actual file bytes. Sent (in order) after the Media header. The receiver
+// appends data to receiving_cache/<Media.id> until it has Media.size bytes.
+message MediaDataSegment {
+  bytes  data                          = 1;
+  int64  requires_acknowledge_receipt_id = 16;  // set on the last segment; frame replies AcknowledgeReceipt
+}
+
+message MediaUpdate { Media media = 1; }
+
+// Resume a partially-transferred media (client asks, frame answers received_bytes)
+message ResumeTransfer         { sint64 media_id = 1; sint64 content_id = 2; }
+message ResumeTransferResponse { sint64 media_id = 1; sint64 content_id = 2; int32 received_bytes = 3; }
+
+// ======================================================================
+// Transport fragmentation wrapper  -- from PBMediaTransfer.MultiPartMessage
+// Any inner frame larger than 16416 bytes is split into these (see PROTOCOL.md).
+// ======================================================================
+message MultiPartMessage {
+  sint64 message_id   = 1;   // same for all fragments of one inner frame (System.currentTimeMillis())
+  int32  message_size = 2;   // total length of the reassembled inner frame
+  int32  data_index   = 3;   // 0-based fragment index
+  bytes  message_data = 4;   // fragment payload (<= 16316 bytes)
+}
+
+// ======================================================================
+// Common  -- from PBCommon
+// ======================================================================
+message AcknowledgeReceipt { int64 acknowledge_id = 1; Error error = 2; }
+message Error              { Code code = 1; int32 additional_int = 2;
+  enum Code { OK = 0; } // full code set not reconstructed; frame->client only
+}
+
+// ======================================================================
+// Basic / handshake  -- from PBBasic
+// ======================================================================
+message GetInfo {}          // empty; client->frame "who are you" ping (inner type 1)
+
+message FrameInfo {
+  string name                        = 1;
+  string placement                   = 2;
+  int32  screen_width                = 3;
+  int32  screen_height               = 4;
+  bool   has_permission_share_pairing = 5;
+  bool   has_permission_to_backup    = 6;
+  HasBackup has_backup               = 7;   // enum, values not reconstructed
+  bool   has_permission_view_photos  = 8;
+  bool   has_permission_manage_photos = 9;
+  FrameCapabilities frame_capabilities = 10;
+  AsyncInformation  async_information = 11;
+  int32  current_state               = 12;  // enum
+  int32  api_environment             = 13;  // enum
+  enum HasBackup { HB_UNKNOWN = 0; }
+}
+
+message FrameCapabilities { int32 max_video_width = 1; int32 max_video_height = 2; }
+message AsyncInformation  { string chia_id = 1; bool has_active_session = 2; }
+message ClientInfo        { string name = 1; string user_account_id = 2; sint64 profile_picture_id = 3; }
+message EncryptedData     { bytes nonce = 1; string encrypted_message = 2; }  // NB: field2 is bytes in practice
+message PairingCode       { string pairing_code = 1; int64 ttl = 2; }

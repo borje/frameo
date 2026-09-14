@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+// Frameo remote-manage subset, hand-corrected from frameo_full.proto (which was
+// machine-generated from a jadx decompile and emitted repeated message fields as
+// "repeated int32" and cross-file message refs as "bytes" -- both wire-incompatible).
+// Field numbers are authoritative (*_FIELD_NUMBER constants). The repeated-scalar
+// subtype of mediaIds is MEDIUM confidence: sint64 here, matching MediaMetaData.mediaId.
+// Verify against a live frame before trusting delete/visibility.
+
+package frameo;
+option go_package = "frameo/internal/frameo/pb";
+
+import "frameo.proto";
+
+enum MediaMetaData_Type {
+  MEDIAMETADATA_TYPE_PICTURE  = 0;
+  MEDIAMETADATA_TYPE_VIDEO    = 1;
+  MEDIAMETADATA_TYPE_GREETING = 2;
+}
+
+message MediaMetaData {
+  sint64             mediaId     = 1;
+  MediaMetaData_Type type        = 2;
+  bool               isVisible   = 3;
+  sint64             captureDate = 4;
+  sint64             receiveDate = 5;
+}
+
+message GetAllMediaMetaData {}
+
+message AllMediaMetaData {
+  repeated MediaMetaData mediaMetaDataItems = 1;
+  Error                  error              = 2;
+}
+
+message DeleteMedia {
+  repeated sint64 mediaIds                    = 1;
+  int64           requiresAcknowledgeReceiptId = 16;
+}
+
+message ChangeMediaVisibility {
+  repeated sint64 mediaIds                    = 1;
+  bool            isVisible                   = 2;
+  int64           requiresAcknowledgeReceiptId = 16;
+}
