@@ -166,12 +166,17 @@ func fileExtension(path string) string {
 	return ext
 }
 
-// ListMedia asks the frame what it is holding.
-func (c *Client) ListMedia(ctx context.Context) ([]*pb.MediaMetaData, error) {
-	if TypeGetAllMediaMetaData == 0 {
+// ListMedia asks the frame what it is holding. msgType overrides the message
+// number when it is non-zero, which is how a candidate is tried while the real
+// one is unknown.
+func (c *Client) ListMedia(ctx context.Context, msgType int32) ([]*pb.MediaMetaData, error) {
+	if msgType == 0 {
+		msgType = TypeGetAllMediaMetaData
+	}
+	if msgType == 0 {
 		return nil, fmt.Errorf("listing media: %w", ErrTypeUnknown)
 	}
-	if err := c.send(ctx, TypeGetAllMediaMetaData, &pb.GetAllMediaMetaData{}); err != nil {
+	if err := c.send(ctx, msgType, &pb.GetAllMediaMetaData{}); err != nil {
 		return nil, err
 	}
 	f, err := c.await(ctx, "the media list", expectType(TypeAllMediaMetaData))
@@ -189,32 +194,39 @@ func (c *Client) ListMedia(ctx context.Context) ([]*pb.MediaMetaData, error) {
 }
 
 // DeleteMedia removes photos from the frame and waits for confirmation.
-func (c *Client) DeleteMedia(ctx context.Context, ids []int64) error {
+// msgType overrides the message number when it is non-zero.
+func (c *Client) DeleteMedia(ctx context.Context, ids []int64, msgType int32) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	if TypeDeleteMedia == 0 {
+	if msgType == 0 {
+		msgType = TypeDeleteMedia
+	}
+	if msgType == 0 {
 		return fmt.Errorf("deleting media: %w", ErrTypeUnknown)
 	}
 	ackID := c.newID()
 	req := &pb.DeleteMedia{MediaIds: ids, RequiresAcknowledgeReceiptId: ackID}
-	if err := c.send(ctx, TypeDeleteMedia, req); err != nil {
+	if err := c.send(ctx, msgType, req); err != nil {
 		return err
 	}
 	return c.awaitAck(ctx, ackID, "the deletion to be confirmed")
 }
 
 // SetMediaVisible shows or hides photos on the frame without deleting them.
-func (c *Client) SetMediaVisible(ctx context.Context, ids []int64, visible bool) error {
+func (c *Client) SetMediaVisible(ctx context.Context, ids []int64, visible bool, msgType int32) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	if TypeChangeMediaVisibility == 0 {
+	if msgType == 0 {
+		msgType = TypeChangeMediaVisibility
+	}
+	if msgType == 0 {
 		return fmt.Errorf("changing visibility: %w", ErrTypeUnknown)
 	}
 	ackID := c.newID()
 	req := &pb.ChangeMediaVisibility{MediaIds: ids, IsVisible: visible, RequiresAcknowledgeReceiptId: ackID}
-	if err := c.send(ctx, TypeChangeMediaVisibility, req); err != nil {
+	if err := c.send(ctx, msgType, req); err != nil {
 		return err
 	}
 	return c.awaitAck(ctx, ackID, "the visibility change to be confirmed")

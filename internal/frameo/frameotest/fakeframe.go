@@ -36,8 +36,17 @@ type Frame struct {
 	RefuseTransfers bool
 	// DropAck makes the frame accept a photo but never confirm it.
 	DropAck bool
+	// ListType is the message number this frame answers a listing request on.
+	// The real number is unknown, so it is configurable here to exercise the
+	// path that supplies a candidate.
+	ListType int32
+	// DeleteType is the message number this frame accepts deletions on.
+	DeleteType int32
+	// Library is what a listing reports.
+	Library []*pb.MediaMetaData
 
 	mu       sync.Mutex
+	deleted  []int64
 	photos   []Photo
 	partial  map[int64]*transfer
 	multi    map[int64]*multipart
@@ -77,6 +86,13 @@ func (f *Frame) Photos() []Photo {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]Photo(nil), f.photos...)
+}
+
+// Deleted returns the ids the frame was asked to remove.
+func (f *Frame) Deleted() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]int64(nil), f.deleted...)
 }
 
 // Segments reports how many data segments arrived, which distinguishes a
@@ -121,6 +137,26 @@ func (f *Frame) handle(rw MessageRW, msg []byte) error {
 		if msgType, payload, err = decode(whole); err != nil {
 			return err
 		}
+	}
+
+	if f.ListType != 0 && msgType == f.ListType {
+		f.mu.Lock()
+		items := append([]*pb.MediaMetaData(nil), f.Library...)
+		f.mu.Unlock()
+		return send(rw, 32, &pb.AllMediaMetaData{MediaMetaDataItems: items})
+	}
+	if f.DeleteType != 0 && msgType == f.DeleteType {
+		var req pb.DeleteMedia
+		if err := proto.Unmarshal(payload, &req); err != nil {
+			return fmt.Errorf("frameotest: malformed deletion request: %w", err)
+		}
+		f.mu.Lock()
+		f.deleted = append(f.deleted, req.GetMediaIds()...)
+		f.mu.Unlock()
+		if id := req.GetRequiresAcknowledgeReceiptId(); id != 0 {
+			return send(rw, 6, &pb.AcknowledgeReceipt{AcknowledgeId: id})
+		}
+		return nil
 	}
 
 	switch msgType {

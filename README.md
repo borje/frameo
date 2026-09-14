@@ -37,3 +37,34 @@ personal-use interoperability project.
 Regenerating the protobuf bindings additionally needs `protoc` and
 `protoc-gen-go`, but the generated files are checked in, so an ordinary build
 does not.
+
+## Finishing the job
+
+Two things still need a real frame.
+
+**Pairing and sending have never run against one.** Everything up to the
+pairing exchange has: the client reaches Frameo's grid, completes the tunnel
+handshake, and gets a proper refusal when it asks to pair with a code that does
+not exist. The rest is exercised against a stand-in frame. To try the real
+thing:
+
+    frameo pair <the code on the frame>
+    frameo info
+    frameo send photo.jpg
+    go test -tags live ./internal/frameo -v          # more thorough, same path
+
+Add `-v` to any command to see the protocol exchange.
+
+**Listing and deleting need message numbers nobody has seen.** Every other
+number was recovered from the app's dispatch table, which covers only what the
+app receives. These two travel the other way. Both commands refuse rather than
+send a message a frame might read as something else.
+
+For listing there is a good guess. Requests are numbered one below their
+answers throughout the protocol, and the answer to a listing is 32, so try:
+
+    frameo -type 31 list
+
+Deleting has no answering message to anchor it, and it changes what is on the
+frame, so it is better read out of the app than guessed at. The numbers are at
+the send sites in the app's own `SDGController`.

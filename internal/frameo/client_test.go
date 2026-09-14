@@ -299,17 +299,17 @@ func TestMediaManagementNeedsUnknownMessageNumbers(t *testing.T) {
 	c := setup(t, frame)
 	ctx := testCtx(t)
 
-	if _, err := c.ListMedia(ctx); !errors.Is(err, frameo.ErrTypeUnknown) {
+	if _, err := c.ListMedia(ctx, 0); !errors.Is(err, frameo.ErrTypeUnknown) {
 		t.Errorf("ListMedia err = %v, want ErrTypeUnknown", err)
 	}
-	if err := c.DeleteMedia(ctx, []int64{1}); !errors.Is(err, frameo.ErrTypeUnknown) {
+	if err := c.DeleteMedia(ctx, []int64{1}, 0); !errors.Is(err, frameo.ErrTypeUnknown) {
 		t.Errorf("DeleteMedia err = %v, want ErrTypeUnknown", err)
 	}
-	if err := c.SetMediaVisible(ctx, []int64{1}, false); !errors.Is(err, frameo.ErrTypeUnknown) {
+	if err := c.SetMediaVisible(ctx, []int64{1}, false, 0); !errors.Is(err, frameo.ErrTypeUnknown) {
 		t.Errorf("SetMediaVisible err = %v, want ErrTypeUnknown", err)
 	}
 	// Nothing to do is not an error, even when the number is unknown.
-	if err := c.DeleteMedia(ctx, nil); err != nil {
+	if err := c.DeleteMedia(ctx, nil, 0); err != nil {
 		t.Errorf("DeleteMedia with no ids = %v, want nil", err)
 	}
 }

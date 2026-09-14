@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"frameo/internal/frameo/frameotest"
+	"frameo/internal/frameo/pb"
 	"frameo/internal/sdg/sdgtest"
 )
 
@@ -220,5 +221,54 @@ func TestSendSeveralPhotosFromTheCommandLine(t *testing.T) {
 	}
 	if got := len(frame.Photos()); got != 3 {
 		t.Errorf("the frame holds %d photos, want 3", got)
+	}
+}
+
+// The numbers for listing and deleting are unknown, so both refuse by default
+// and take a candidate from -type. This checks that path works, so that trying
+// a candidate against a real frame is a matter of passing the flag.
+func TestListAndDeleteWithASuppliedMessageNumber(t *testing.T) {
+	withConfig(t)
+	frame := frameotest.New()
+	frame.ListType = 31
+	frame.DeleteType = 34
+	frame.Library = []*pb.MediaMetaData{
+		{MediaId: 111, CaptureDate: 1600000000000, IsVisible: true},
+		{MediaId: 222, CaptureDate: 1700000000000},
+	}
+	server, code := startFakeFrame(t, frame)
+
+	if _, err := runCLI(t, "-server", server, "pair", code); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without a number, the command must refuse and say what to try.
+	_, err := runCLI(t, "-server", server, "list")
+	if err == nil {
+		t.Fatal("list should refuse without a message number")
+	}
+	if !strings.Contains(err.Error(), "-type 31") {
+		t.Errorf("the refusal does not suggest a candidate: %v", err)
+	}
+
+	out, err := runCLI(t, "-server", server, "-type", "31", "list")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	for _, want := range []string{"111", "222", "shown", "hidden"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("list output does not mention %q:\n%s", want, out)
+		}
+	}
+
+	if _, err := runCLI(t, "-server", server, "-type", "34", "delete", "111"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if got := frame.Deleted(); len(got) != 1 || got[0] != 111 {
+		t.Errorf("frame was asked to delete %v, want [111]", got)
+	}
+
+	if _, err := runCLI(t, "-server", server, "-type", "34", "delete", "notanumber"); err == nil {
+		t.Error("want an error for an id that is not a number")
 	}
 }

@@ -30,15 +30,27 @@ const (
 	TypeCalendarStatuses   = 40
 )
 
-// Message types this client sends but whose numbers are not yet known. They
-// were recovered from the frame's receive dispatch, which only covers what the
-// frame accepts; these three travel the other way and their numbers live at
-// the app's send sites.
+// Message numbers this client needs but does not know. They were never
+// observed: the numbers above come from the dispatch table in the app, and
+// these three appear only at its send sites.
 //
-// Until they are filled in, the commands that need them refuse rather than
-// send a message the frame would misread. The "raw" command exists to probe
-// candidates against a real frame.
+// Zero means unknown, and the commands that need them refuse rather than send
+// a message a frame might read as something else entirely. Supply a candidate
+// with the command line's -type option to try one against a real frame.
+//
+// There is a well-supported guess for the first. Every request whose answer is
+// known is numbered one below that answer: GetInfo is 1 and FrameInfo is 2,
+// and the same holds at 7/8, 18/19, 21/22, 42/43 and 47/48. AllMediaMetaData
+// is 32, which puts GetAllMediaMetaData at 31. It is a request for a listing,
+// so trying it costs nothing if the guess is wrong.
+//
+// The other two have no answering message to anchor them, and both change what
+// is on the frame, so guessing is not worth the risk. Their numbers are in the
+// app's own source, at the send sites in SDGController.
 const (
+	// CandidateGetAllMediaMetaData is the inferred number described above.
+	CandidateGetAllMediaMetaData = 31
+
 	TypeGetAllMediaMetaData   = 0
 	TypeDeleteMedia           = 0
 	TypeChangeMediaVisibility = 0

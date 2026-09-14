@@ -43,7 +43,12 @@ Options:
   -timeout <dur>     give up after this long (default 2m)
   -config <path>     configuration file (default: under the user config dir)
   -server <host:port>  use this grid server instead of Frameo's
+  -type <number>     message number for list or delete, whose numbers are not
+                     known yet; try 31 for list
   -v                 log the protocol exchange
+
+The numbers list and delete need were never observed, so both refuse unless
+-type supplies one. See internal/frameo/types.go for what is known.
 `
 
 type options struct {
@@ -55,6 +60,7 @@ type options struct {
 	timeout       time.Duration
 	configPath    string
 	server        string
+	msgType       int
 	verbose       bool
 }
 
@@ -77,6 +83,7 @@ func run(args []string, stdout io.Writer) error {
 	fs.DurationVar(&o.timeout, "timeout", 2*time.Minute, "give up after this long")
 	fs.StringVar(&o.configPath, "config", "", "configuration file")
 	fs.StringVar(&o.server, "server", "", "grid server to use")
+	fs.IntVar(&o.msgType, "type", 0, "message number to use for a command whose number is unknown")
 	fs.BoolVar(&o.verbose, "v", false, "log the protocol exchange")
 	if err := fs.Parse(args); err != nil {
 		return errors.New("run \"frameo\" with no arguments for usage")
@@ -310,7 +317,10 @@ func cmdList(ctx context.Context, cfg *config.Config, o *options) error {
 	}
 	defer c.Close()
 
-	items, err := c.ListMedia(ctx)
+	items, err := c.ListMedia(ctx, int32(o.msgType))
+	if errors.Is(err, frameo.ErrTypeUnknown) {
+		return fmt.Errorf("%w\ntry: frameo -type %d list", err, frameo.CandidateGetAllMediaMetaData)
+	}
 	if err != nil {
 		return err
 	}
@@ -349,7 +359,7 @@ func cmdDelete(ctx context.Context, cfg *config.Config, o *options, args []strin
 	}
 	defer c.Close()
 
-	if err := c.DeleteMedia(ctx, ids); err != nil {
+	if err := c.DeleteMedia(ctx, ids, int32(o.msgType)); err != nil {
 		return err
 	}
 	fmt.Fprintf(o.out, "Removed %d item(s) from %s.\n", len(ids), name)
