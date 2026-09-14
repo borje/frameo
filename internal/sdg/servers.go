@@ -1,6 +1,9 @@
 package sdg
 
-import "strconv"
+import (
+	"net"
+	"strconv"
+)
 
 // Endpoint is one grid server to try.
 type Endpoint struct {
@@ -8,7 +11,9 @@ type Endpoint struct {
 	Port int
 }
 
-func (e Endpoint) String() string { return e.Host + ":" + strconv.Itoa(e.Port) }
+// String renders the endpoint as a dial address, bracketing a bare IPv6
+// literal so it is not mistaken for a host and port.
+func (e Endpoint) String() string { return net.JoinHostPort(e.Host, strconv.Itoa(e.Port)) }
 
 // FrameoServers is the San Francisco grid group used by the Frameo app, as
 // extracted from its MdgConfiguration. Hostnames come first because the IPv4

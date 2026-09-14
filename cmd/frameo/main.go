@@ -40,7 +40,7 @@ Options:
   -caption <text>    caption to send with a photo
   -fit               fit the whole photo on screen instead of cropping to fill
   -single-segment    send each photo as one message instead of a series
-  -timeout <dur>     give up after this long (default 2m)
+  -timeout <dur>     give up after this long, covering the whole run (default 15m)
   -config <path>     configuration file (default: under the user config dir)
   -server <host:port>  use this grid server instead of Frameo's
   -type <number>     message number for list or delete, whose numbers are not
@@ -80,7 +80,7 @@ func run(args []string, stdout io.Writer) error {
 	fs.StringVar(&o.caption, "caption", "", "caption to send with a photo")
 	fs.BoolVar(&o.fit, "fit", false, "fit the whole photo on screen")
 	fs.BoolVar(&o.singleSegment, "single-segment", false, "send each photo as one message")
-	fs.DurationVar(&o.timeout, "timeout", 2*time.Minute, "give up after this long")
+	fs.DurationVar(&o.timeout, "timeout", 15*time.Minute, "give up after this long")
 	fs.StringVar(&o.configPath, "config", "", "configuration file")
 	fs.StringVar(&o.server, "server", "", "grid server to use")
 	fs.IntVar(&o.msgType, "type", 0, "message number to use for a command whose number is unknown")
@@ -93,6 +93,19 @@ func run(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
 		fmt.Fprint(os.Stderr, usage)
 		return errors.New("no command given")
+	}
+
+	cmdName := args[0]
+	// Handled before the configuration is touched, so a typo or a request for
+	// help does not create an identity file as a side effect.
+	switch cmdName {
+	case "help", "-h", "--help":
+		fmt.Fprint(stdout, usage)
+		return nil
+	}
+	if !knownCommands[cmdName] {
+		fmt.Fprint(os.Stderr, usage)
+		return fmt.Errorf("unknown command %q", cmdName)
 	}
 
 	cfg, err := config.Load(o.configPath)
@@ -125,13 +138,16 @@ func run(args []string, stdout io.Writer) error {
 		return cmdWhoami(cfg, &o)
 	case "raw":
 		return cmdRaw(ctx, cfg, &o, rest)
-	case "help", "-h", "--help":
-		fmt.Fprint(stdout, usage)
-		return nil
 	default:
-		fmt.Fprint(os.Stderr, usage)
 		return fmt.Errorf("unknown command %q", cmd)
 	}
+}
+
+// knownCommands is checked before anything is read or written, so an unknown
+// command has no side effects.
+var knownCommands = map[string]bool{
+	"pair": true, "info": true, "send": true, "list": true, "delete": true,
+	"frames": true, "forget": true, "whoami": true, "raw": true,
 }
 
 // logger builds the protocol logger. Quiet by default, because the ordinary
@@ -235,17 +251,9 @@ func cmdPair(ctx context.Context, cfg *config.Config, o *options, args []string)
 		}
 		return err
 	}
-	if err := cfg.AddFrame(o.frame, peer); err != nil {
+	name, err := cfg.AddFrame(o.frame, peer)
+	if err != nil {
 		return err
-	}
-
-	name := o.frame
-	if name == "" {
-		for n, f := range cfg.Frames {
-			if f.PeerID == peer.String() {
-				name = n
-			}
-		}
 	}
 	fmt.Fprintf(o.out, "Paired with %s.\n", name)
 	fmt.Fprintf(o.out, "Its address is %s, saved in %s.\n", peer, cfg.Path())

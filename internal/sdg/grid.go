@@ -114,13 +114,9 @@ func (g *Grid) negotiate() error {
 		return fmt.Errorf("sdg: grid: send protocol version: %w", err)
 	}
 
-	data, err := g.c.recvMESG()
+	body, err := g.awaitControl(msgProtocolVersion)
 	if err != nil {
 		return fmt.Errorf("sdg: grid: awaiting protocol version: %w", err)
-	}
-	body, err := controlBody(data, msgProtocolVersion)
-	if err != nil {
-		return fmt.Errorf("sdg: grid: %w", err)
 	}
 	var theirs control.ProtocolVersion
 	if err := proto.Unmarshal(body, &theirs); err != nil {
@@ -137,13 +133,9 @@ func (g *Grid) negotiate() error {
 	if err := g.sendPing(); err != nil {
 		return fmt.Errorf("sdg: grid: send ping: %w", err)
 	}
-	data, err = g.c.recvMESG()
+	body, err = g.awaitControl(msgPong)
 	if err != nil {
-		return fmt.Errorf("sdg: grid: awaiting pong: %w", err)
-	}
-	body, err = controlBody(data, msgPong)
-	if err != nil {
-		return fmt.Errorf("sdg: grid: %w", err)
+		return fmt.Errorf("sdg: grid: awaiting the first pong: %w", err)
 	}
 	var pong control.Pong
 	if err := proto.Unmarshal(body, &pong); err != nil {
@@ -153,17 +145,33 @@ func (g *Grid) negotiate() error {
 	return nil
 }
 
-// controlBody checks the one-byte type tag of a control message and returns
-// the protobuf that follows it.
-func controlBody(data []byte, want byte) ([]byte, error) {
-	if len(data) == 0 {
-		return nil, fmt.Errorf("%w: empty control message", ErrProtocol)
+// awaitControl reads until the grid sends the message we are waiting for.
+// Anything else is handled in passing rather than treated as an error: the
+// grid may volunteer a message at any time, including during bring-up, and the
+// reference client dispatches on type rather than expecting a fixed order.
+func (g *Grid) awaitControl(want byte) ([]byte, error) {
+	for range maxBringUpMessages {
+		data, err := g.c.recvMESG()
+		if err != nil {
+			return nil, err
+		}
+		if len(data) == 0 {
+			continue
+		}
+		if data[0] == want {
+			return data[1:], nil
+		}
+		g.opt.Logger.Debug("handling a message that arrived during bring-up", "type", data[0])
+		if err := g.handle(data); err != nil {
+			return nil, err
+		}
 	}
-	if data[0] != want {
-		return nil, fmt.Errorf("%w: expected control message %d, got %d", ErrProtocol, want, data[0])
-	}
-	return data[1:], nil
+	return nil, fmt.Errorf("%w: the grid never sent message %d", ErrProtocol, want)
 }
+
+// maxBringUpMessages bounds how much unrelated traffic to wade through before
+// concluding the grid is not going to answer.
+const maxBringUpMessages = 32
 
 func (g *Grid) sendPing() error {
 	g.pingMu.Lock()
@@ -412,6 +420,10 @@ func (g *Grid) forwardAndHandshake(ctx context.Context, reply *control.PeerReply
 	stop := watchCtx(ctx, c.nc)
 	defer stop()
 
+	if err := ctx.Err(); err != nil {
+		_ = c.close()
+		return nil, err
+	}
 	if err := c.handshake(m, expect, &g.id.Public, &g.id.Private, nil); err != nil {
 		_ = c.close()
 		return nil, err

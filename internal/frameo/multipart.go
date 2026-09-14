@@ -46,6 +46,11 @@ func split(message []byte, messageID int64) ([][]byte, error) {
 	return parts, nil
 }
 
+// maxPartialMessages caps how many messages may be part-received at once. A
+// peer that starts transfers and abandons them would otherwise grow this
+// without limit.
+const maxPartialMessages = 16
+
 // reassembler rebuilds messages that arrived in pieces.
 type reassembler struct {
 	mu       sync.Mutex
@@ -82,12 +87,24 @@ func (r *reassembler) add(payload []byte) ([]byte, error) {
 	if part.GetDataIndex() < 0 {
 		return nil, fmt.Errorf("frameo: message part has a negative position")
 	}
+	// Widened deliberately: the position is chosen by the sender, and at 32
+	// bits this product wraps to a negative number that would pass the bounds
+	// check below.
+	offset := int64(part.GetDataIndex()) * chunkSize
+	if offset >= int64(part.GetMessageSize()) {
+		return nil, fmt.Errorf("frameo: message part %d starts past the end of a %d byte message",
+			part.GetDataIndex(), part.GetMessageSize())
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	p := r.partial[part.GetMessageId()]
 	if p == nil {
+		if len(r.partial) >= maxPartialMessages {
+			return nil, fmt.Errorf("frameo: %d messages are already part-received; refusing to track more",
+				len(r.partial))
+		}
 		p = &partialMessage{size: part.GetMessageSize(), parts: map[int32][]byte{}}
 		r.partial[part.GetMessageId()] = p
 	}
@@ -96,11 +113,6 @@ func (r *reassembler) add(payload []byte) ([]byte, error) {
 			part.GetMessageId(), p.size, part.GetMessageSize())
 	}
 
-	offset := int(part.GetDataIndex()) * chunkSize
-	if offset >= int(p.size) {
-		return nil, fmt.Errorf("frameo: message part %d starts past the end of a %d byte message",
-			part.GetDataIndex(), p.size)
-	}
 	if _, seen := p.parts[part.GetDataIndex()]; !seen {
 		p.parts[part.GetDataIndex()] = part.GetMessageData()
 		p.have += len(part.GetMessageData())
@@ -129,4 +141,12 @@ func (r *reassembler) pending() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.partial)
+}
+
+// reset discards everything part-received, freeing it when the conversation
+// ends.
+func (r *reassembler) reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	clear(r.partial)
 }

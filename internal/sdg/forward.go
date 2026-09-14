@@ -22,6 +22,10 @@ func dialForwarded(ctx context.Context, host string, port int, tunnelID []byte, 
 	}
 	c := newConn(nc, role, o.Logger, o.readLimit())
 	c.stepTimeout = o.StepTimeout
+	// Cancellation has to reach this exchange too: a relay that keeps saying
+	// "still trying" would otherwise hold the caller past its deadline.
+	stop := watchCtx(ctx, nc)
+	defer stop()
 
 	req := &control.ForwardRemote{
 		Magic:         proto.Uint32(forwardRemoteMagic),
@@ -47,10 +51,15 @@ func dialForwarded(ctx context.Context, host string, port int, tunnelID []byte, 
 	return c, nil
 }
 
+// maxHoldFrames bounds how many "still trying" frames to accept before giving
+// up on a relay that is not going to connect us.
+const maxHoldFrames = 64
+
 // awaitForwardReply consumes relay frames until the tunnel is confirmed. The
-// relay may emit any number of hold frames first while it waits for the peer
-// to answer; those carry no information beyond "still trying".
+// relay emits hold frames while it waits for the peer to answer; those carry
+// no information beyond "still trying".
 func awaitForwardReply(c *conn) error {
+	holds := 0
 	for {
 		body, err := c.readBody()
 		if err != nil {
@@ -59,6 +68,9 @@ func awaitForwardReply(c *conn) error {
 		switch body[0] {
 		case msgForwardHold:
 			if len(body) == 1 {
+				if holds++; holds > maxHoldFrames {
+					return fmt.Errorf("%w: the relay is still trying after %d attempts", ErrPeerTimeout, holds)
+				}
 				continue
 			}
 			return fmt.Errorf("%w: relay hold frame of %d bytes", ErrProtocol, len(body))

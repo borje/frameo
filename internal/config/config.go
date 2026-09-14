@@ -124,16 +124,28 @@ func (c *Config) Save() error {
 	return nil
 }
 
-// AddFrame records a pairing. The first frame paired becomes the default.
-func (c *Config) AddFrame(name string, peer sdg.PeerID) error {
+// AddFrame records a pairing and returns the name it was filed under. Pairing
+// a frame that is already known updates it in place rather than adding a
+// second entry for the same device.
+func (c *Config) AddFrame(name string, peer sdg.PeerID) (string, error) {
 	if name == "" {
-		name = c.nextName()
+		name = c.nameFor(peer)
+	}
+	// Two names for one device would make the address ambiguous, so drop any
+	// other entry pointing at it.
+	for n, f := range c.Frames {
+		if f.PeerID == peer.String() && n != name {
+			delete(c.Frames, n)
+			if c.DefaultFrame == n {
+				c.DefaultFrame = name
+			}
+		}
 	}
 	c.Frames[name] = Frame{PeerID: peer.String(), Name: name, PairedAt: time.Now().UTC()}
 	if c.DefaultFrame == "" {
 		c.DefaultFrame = name
 	}
-	return c.Save()
+	return name, c.Save()
 }
 
 // RemoveFrame forgets a pairing.
@@ -177,8 +189,14 @@ func (c *Config) Resolve(name string) (string, sdg.PeerID, error) {
 	return name, peer, nil
 }
 
-// nextName invents a name for a frame the user did not name.
-func (c *Config) nextName() string {
+// nameFor picks a name for a frame the user did not name: the one it already
+// has if it is known, otherwise the next unused one.
+func (c *Config) nameFor(peer sdg.PeerID) string {
+	for n, f := range c.Frames {
+		if f.PeerID == peer.String() {
+			return n
+		}
+	}
 	for i := 1; ; i++ {
 		name := fmt.Sprintf("frame%d", i)
 		if _, taken := c.Frames[name]; !taken {

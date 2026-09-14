@@ -236,3 +236,49 @@ func TestReassembleRejectsChangedSize(t *testing.T) {
 		t.Error("want an error when a message changes size mid-flight")
 	}
 }
+
+// A peer that starts transfers and abandons them must not be able to grow this
+// without limit.
+func TestReassembleBoundsPartialMessages(t *testing.T) {
+	r := newReassembler(0)
+	start := func(id int64) error {
+		b, err := proto.Marshal(&pb.MultiPartMessage{
+			MessageId: id, MessageSize: 10 * chunkSize, DataIndex: 0, MessageData: make([]byte, 10),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = r.add(b)
+		return err
+	}
+	for i := range maxPartialMessages {
+		if err := start(int64(i)); err != nil {
+			t.Fatalf("message %d: %v", i, err)
+		}
+	}
+	if err := start(9999); err == nil {
+		t.Error("want an error once the limit is reached")
+	}
+	r.reset()
+	if r.pending() != 0 {
+		t.Error("reset did not discard the part-received messages")
+	}
+	if err := start(9999); err != nil {
+		t.Errorf("after reset: %v", err)
+	}
+}
+
+// The position is chosen by the sender, so the offset it implies must not be
+// allowed to wrap into a value that passes the bounds check.
+func TestReassembleRejectsOverflowingPosition(t *testing.T) {
+	r := newReassembler(0)
+	b, err := proto.Marshal(&pb.MultiPartMessage{
+		MessageId: 1, MessageSize: 40000, DataIndex: 1 << 30, MessageData: make([]byte, 10),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.add(b); err == nil {
+		t.Error("want an error for a position far past the end")
+	}
+}

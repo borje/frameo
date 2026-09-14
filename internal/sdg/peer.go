@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // Peer is an established connection to another device. It carries whole
@@ -49,8 +50,19 @@ func (p *Peer) Send(ctx context.Context, msg []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := p.c.sendMESG(msg); err != nil {
+	// A frame that stops reading closes the send window, and a write with no
+	// deadline would then block for as long as the operating system allows.
+	// Bounding it by the caller's deadline is what makes a stalled transfer
+	// interruptible.
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(p.opt.StepTimeout)
+	}
+	if err := p.c.sendMESGBy(msg, deadline); err != nil {
 		p.shutdown(fmt.Errorf("sdg: peer: send: %w", err))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return err
 	}
 	return nil

@@ -58,10 +58,10 @@ func TestAddAndResolveFrames(t *testing.T) {
 	var living, kitchen sdg.PeerID
 	living[0], kitchen[0] = 1, 2
 
-	if err := c.AddFrame("living", living); err != nil {
+	if _, err := c.AddFrame("living", living); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.AddFrame("kitchen", kitchen); err != nil {
+	if _, err := c.AddFrame("kitchen", kitchen); err != nil {
 		t.Fatal(err)
 	}
 
@@ -109,10 +109,10 @@ func TestAutoNaming(t *testing.T) {
 	}
 	var a, b sdg.PeerID
 	a[0], b[0] = 1, 2
-	if err := c.AddFrame("", a); err != nil {
+	if _, err := c.AddFrame("", a); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.AddFrame("", b); err != nil {
+	if _, err := c.AddFrame("", b); err != nil {
 		t.Fatal(err)
 	}
 	if got := c.Names(); len(got) != 2 || got[0] != "frame1" || got[1] != "frame2" {
@@ -127,8 +127,8 @@ func TestRemoveFrameMovesTheDefault(t *testing.T) {
 	}
 	var a, b sdg.PeerID
 	a[0], b[0] = 1, 2
-	_ = c.AddFrame("one", a)
-	_ = c.AddFrame("two", b)
+	_, _ = c.AddFrame("one", a)
+	_, _ = c.AddFrame("two", b)
 
 	if err := c.RemoveFrame("one"); err != nil {
 		t.Fatal(err)
@@ -150,7 +150,7 @@ func TestPairingSurvivesReload(t *testing.T) {
 	}
 	var peer sdg.PeerID
 	peer[0] = 0xab
-	if err := c.AddFrame("living", peer); err != nil {
+	if _, err := c.AddFrame("living", peer); err != nil {
 		t.Fatal(err)
 	}
 
@@ -207,4 +207,51 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// Pairing a frame that is already known must update it, not create a second
+// entry pointing at the same device.
+func TestRepairingTheSameFrame(t *testing.T) {
+	c, err := config.Load(tempPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var peer sdg.PeerID
+	peer[0] = 0x7f
+
+	first, err := c.AddFrame("", peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := c.AddFrame("", peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Errorf("re-pairing produced %q then %q", first, second)
+	}
+	if got := len(c.Frames); got != 1 {
+		t.Errorf("configuration holds %d frames, want 1: %v", got, c.Names())
+	}
+}
+
+func TestRenamingAFrameDropsTheOldEntry(t *testing.T) {
+	c, err := config.Load(tempPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var peer sdg.PeerID
+	peer[0] = 0x11
+	if _, err := c.AddFrame("", peer); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.AddFrame("hallway", peer); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Names(); len(got) != 1 || got[0] != "hallway" {
+		t.Errorf("Names() = %v, want just the new name", got)
+	}
+	if _, _, err := c.Resolve(""); err != nil {
+		t.Errorf("the default frame did not follow the rename: %v", err)
+	}
 }

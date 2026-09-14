@@ -94,6 +94,7 @@ func (c *Client) newID() int64 { return c.nextID.Add(1) }
 
 func (c *Client) readLoop() {
 	defer close(c.frames)
+	defer c.r.reset()
 	for {
 		msg, err := c.t.Recv(context.Background())
 		if err != nil {
@@ -164,29 +165,11 @@ func (c *Client) await(ctx context.Context, what string, accept func(Frame) bool
 			if accept(f) {
 				return f, nil
 			}
-			if err := frameError(f); err != nil {
-				return Frame{}, fmt.Errorf("frameo: waiting for %s: %w", what, err)
-			}
 			c.log.Debug("ignoring an unrelated message while waiting", "for", what, "got", f.String())
 		case <-ctx.Done():
 			return Frame{}, fmt.Errorf("frameo: waiting for %s: %w", what, ctx.Err())
 		}
 	}
-}
-
-// frameError turns a frame that reports a problem into an error.
-func frameError(f Frame) error {
-	if f.Type != TypeAcknowledgeReceipt {
-		return nil
-	}
-	var ack pb.AcknowledgeReceipt
-	if err := proto.Unmarshal(f.Payload, &ack); err != nil {
-		return nil
-	}
-	if e := ack.GetError(); e != nil && e.GetCode() != 0 {
-		return fmt.Errorf("the frame reported error code %d", e.GetCode())
-	}
-	return nil
 }
 
 func expectType(t int32) func(Frame) bool {

@@ -12,8 +12,10 @@ import (
 
 	"frameo/internal/frameo"
 	"frameo/internal/frameo/frameotest"
+	"frameo/internal/frameo/pb"
 	"frameo/internal/sdg"
 	"frameo/internal/sdg/sdgtest"
+	"google.golang.org/protobuf/proto"
 )
 
 // setup wires a real client to a fake frame through the real transport and a
@@ -189,7 +191,7 @@ func TestSendPhotoMetadata(t *testing.T) {
 	taken := time.Date(2021, 6, 5, 12, 0, 0, 0, time.UTC)
 
 	if _, err := c.SendPhoto(testCtx(t), frameo.Photo{
-		Path: path, Taken: taken, Fit: true, CenterX: 0.25, CenterY: 0.75,
+		Path: path, Taken: taken, Fit: true, Center: &[2]float32{0.25, 0.75},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -346,4 +348,67 @@ func TestOperationFailsAfterClose(t *testing.T) {
 	if _, err := c.GetInfo(testCtx(t)); err == nil {
 		t.Error("want an error after closing")
 	}
+}
+
+func TestSendPhotoCropFocus(t *testing.T) {
+	t.Run("defaults to the middle", func(t *testing.T) {
+		frame := frameotest.New()
+		c := setup(t, frame)
+		if _, err := c.SendPhoto(testCtx(t), frameo.Photo{Path: writePhoto(t, 500)}); err != nil {
+			t.Fatal(err)
+		}
+		m := frame.Photos()[0].Media
+		if m.GetCenterPointX() != 0.5 || m.GetCenterPointY() != 0.5 {
+			t.Errorf("centre point = %v,%v, want 0.5,0.5", m.GetCenterPointX(), m.GetCenterPointY())
+		}
+	})
+
+	// The top-left corner is a legitimate focus and must not be mistaken for
+	// "not specified".
+	t.Run("top left corner", func(t *testing.T) {
+		frame := frameotest.New()
+		c := setup(t, frame)
+		photo := frameo.Photo{Path: writePhoto(t, 500), Center: &[2]float32{0, 0}}
+		if _, err := c.SendPhoto(testCtx(t), photo); err != nil {
+			t.Fatal(err)
+		}
+		m := frame.Photos()[0].Media
+		if m.GetCenterPointX() != 0 || m.GetCenterPointY() != 0 {
+			t.Errorf("centre point = %v,%v, want 0,0", m.GetCenterPointX(), m.GetCenterPointY())
+		}
+	})
+}
+
+// A failed acknowledgement belongs to one transfer. It must not end an
+// unrelated wait, or sending several photos would report the wrong one as
+// having failed.
+func TestUnrelatedFailedAckDoesNotDerailAnotherWait(t *testing.T) {
+	frame := frameotest.New()
+	c := setup(t, frame)
+	ctx := testCtx(t)
+
+	// A stray failure arrives before the request we care about is answered.
+	if err := c.SendRaw(ctx, 6, mustAck(t, 999999, 7)); err != nil {
+		t.Fatal(err)
+	}
+	info, err := c.GetInfo(ctx)
+	if err != nil {
+		t.Fatalf("GetInfo: %v", err)
+	}
+	if info.GetName() != "Test Frame" {
+		t.Errorf("name = %q", info.GetName())
+	}
+}
+
+// mustAck builds an acknowledgement carrying an error, as the frame would.
+func mustAck(t *testing.T, id int64, code int32) []byte {
+	t.Helper()
+	b, err := proto.Marshal(&pb.AcknowledgeReceipt{
+		AcknowledgeId: id,
+		Error:         &pb.Error{Code: pb.Error_Code(code)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

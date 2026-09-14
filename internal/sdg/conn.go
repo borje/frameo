@@ -138,6 +138,17 @@ func (c *conn) sendMESG(data []byte) error {
 	return c.writeBody(encodeMesg(data, c.nextCtr(), &c.shared))
 }
 
+// sendMESGBy is sendMESG with a deadline on the write itself.
+func (c *conn) sendMESGBy(data []byte, deadline time.Time) error {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	body := encodeMesg(data, c.nextCtr(), &c.shared)
+	c.dump("send frame", body)
+	_ = c.nc.SetWriteDeadline(deadline)
+	defer func() { _ = c.nc.SetWriteDeadline(time.Time{}) }()
+	return writeFrame(c.nc, body)
+}
+
 // sendControl sends a relay control message inside the tunnel: a type byte
 // followed by its protobuf.
 func (c *conn) sendControl(msgType byte, m proto.Message) error {

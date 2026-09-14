@@ -25,9 +25,10 @@ type Photo struct {
 	// Fit selects scaling: false crops to fill the screen around the centre
 	// point, true fits the whole photo inside it.
 	Fit bool
-	// CenterX and CenterY place the crop focus, from 0 to 1. Zero values mean
-	// the centre of the photo.
-	CenterX, CenterY float32
+	// Center places the crop focus as x and y from 0 to 1. Nil means the
+	// middle of the photo, which is different from {0, 0}: that is its
+	// top-left corner.
+	Center *[2]float32
 	// SingleSegment sends the file as one message and lets the transport split
 	// it, instead of sending a series of segments. The app sends segments; this
 	// exists to try the other shape against a frame that rejects them.
@@ -62,12 +63,9 @@ func (c *Client) SendPhoto(ctx context.Context, p Photo) (int64, error) {
 			taken = time.Now()
 		}
 	}
-	cx, cy := p.CenterX, p.CenterY
-	if cx == 0 {
-		cx = 0.5
-	}
-	if cy == 0 {
-		cy = 0.5
+	cx, cy := float32(0.5), float32(0.5)
+	if p.Center != nil {
+		cx, cy = p.Center[0], p.Center[1]
 	}
 	scale := pb.Media_CENTER_POINT_CROP
 	if p.Fit {
