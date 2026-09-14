@@ -199,9 +199,6 @@ func (c *Client) DeleteMedia(ctx context.Context, ids []int64, msgType int32) er
 	if msgType == 0 {
 		msgType = TypeDeleteMedia
 	}
-	if msgType == 0 {
-		return fmt.Errorf("deleting media: %w", ErrTypeUnknown)
-	}
 	ackID := c.newID()
 	req := &pb.DeleteMedia{MediaIds: ids, RequiresAcknowledgeReceiptId: ackID}
 	if err := c.send(ctx, msgType, req); err != nil {
@@ -217,9 +214,6 @@ func (c *Client) SetMediaVisible(ctx context.Context, ids []int64, visible bool,
 	}
 	if msgType == 0 {
 		msgType = TypeChangeMediaVisibility
-	}
-	if msgType == 0 {
-		return fmt.Errorf("changing visibility: %w", ErrTypeUnknown)
 	}
 	ackID := c.newID()
 	req := &pb.ChangeMediaVisibility{MediaIds: ids, IsVisible: visible, RequiresAcknowledgeReceiptId: ackID}

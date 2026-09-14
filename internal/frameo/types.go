@@ -2,8 +2,6 @@
 // SecureDeviceGrid connection.
 package frameo
 
-import "errors"
-
 // Every message is framed as two big-endian 32-bit integers followed by a
 // protobuf: a constant, then the type that says which protobuf it is.
 const (
@@ -38,34 +36,98 @@ const (
 	// AllMediaIds at 25, draws a reply typed 25 instead — a different,
 	// unimplemented request, not this one.)
 	TypeGetAllMediaMetaData = 31
+
+	// TypeDeleteMedia removes photos from the frame for good. Confirmed against
+	// a real frame on a throwaway photo: a genuine DeleteMedia{MediaIds,
+	// RequiresAcknowledgeReceiptId} sent to 34 drew an AcknowledgeReceipt
+	// carrying our own acknowledge id and no error, and the photo was gone from
+	// the next listing rather than present and hidden.
+	TypeDeleteMedia = 34
+
+	// TypeChangeMediaVisibility hides and shows a photo without deleting it.
+	// Confirmed against a real frame, in both directions, on a throwaway photo
+	// uploaded for the purpose: sending 33 with a genuine
+	// ChangeMediaVisibility{MediaIds, IsVisible} drew an AcknowledgeReceipt
+	// carrying our own acknowledge id and no error, and the listing then
+	// reported that id as isVisible=false; sending it again with IsVisible
+	// true moved it back. Hidden photos stay in the listing, marked hidden,
+	// which is what makes this observable at all.
+	TypeChangeMediaVisibility = 33
 )
 
-// Message numbers this client needs but does not know. DeleteMedia and
-// ChangeMediaVisibility are defined in the app's protobuf schema and the app
-// has receive-side dispatch cases for their replies, but the app itself has no
-// send site for either request anywhere in its code (checked against a
-// decompile of v1.40.5). The phone never asks for these; whatever sends them
-// lives in the frame's firmware, which is not available to inspect. So there
-// is no source to read the numbers from, guessed or otherwise.
+// Candidates seen but not yet confirmed the way TypeGetAllMediaMetaData was:
+// each drew a distinguishable, real reply from the frame rather than being
+// ignored like an arbitrary number, but every reply so far has been the same
+// permission-denied refusal `list` gets (error code 5, from `May manage:
+// false` on this pairing), never a genuine positive payload. Naming these as
+// constants waits on that positive confirmation.
 //
-// Zero means unknown, and the commands that need them refuse rather than send
-// a message a frame might read as something else entirely. Supply a candidate
-// with the command line's -type option to try one against a real frame.
+//   - 23, empty payload: replies with a `Media`-shaped message carrying
+//     `Error{Code: 5}` at field 11, matching Media's own error field exactly
+//     (payload hex 5a020805 decodes to field 11 → {field 1: 5}). Consistent
+//     with a "GetMedia" that fetches one photo's data and normally answers
+//     with Media(4) followed by MediaDataSegment(5) chunks — the same shapes
+//     already used for uploading, reused for download — but that is
+//     unverified; only the error path has been seen.
+//   - 24, empty payload: replies typed 25 carrying `Error{Code: 5}` at field
+//     2 (payload hex 12020805 decodes to field 2 → {field 1: 5}) — a
+//     smaller, distinct shape from Media's, consistent with a lean
+//     "AllMediaIds" (ids plus an error field, nothing else). This exact
+//     payload also turned up typed as AcknowledgeReceipt(6) in a concurrent
+//     probe from another session sharing this identity, which briefly looked
+//     like cross-talk between the two connections. It isn't: `Error` sits at
+//     field 2 in several message types here (AcknowledgeReceipt,
+//     AllMediaMetaData, and by the same pattern 25), so a bare
+//     `Error{Code: 5}` refusal serializes identically regardless of which of
+//     them wraps it — the frame header's type number is what distinguishes
+//     them, not the payload. Still, avoid running live probes against the
+//     same paired frame from two sessions at once; it wastes effort even
+//     when it doesn't produce a genuinely ambiguous result.
+//     (34 was on this list too, as a MediaUpdate candidate. It is not one: it
+//     deletes, and is now TypeDeleteMedia above. The MediaUpdate payload that
+//     first drew a reply from it was being read as a deletion the whole time,
+//     for the reason set out below.)
+//   - 26, empty payload: drew no reply at all beyond the baseline GetInfo
+//     chatter every connection gets (verified by comparison against a
+//     nonsense message number, which gets the same baseline and nothing
+//     more). No evidence it exists as its own request; it may only ever
+//     appear as part of an actual multi-id listing reply, or the existing
+//     generic MultiPartMessage(30) wrapper may already cover that case and
+//     this number is unused.
 //
-// Unlike GetAllMediaMetaData, DeleteMedia and ChangeMediaVisibility have no
-// answering message to anchor a guess at all, and both change what is on the
-// frame, so this client does not guess them. Finding them needs either a live
-// capture of a real remote-manage session, or a live probe with
-// `frameo raw <n>` against a real frame, judging success by whether the frame
-// answers or by inspecting its state afterward.
-const (
-	TypeDeleteMedia           = 0
-	TypeChangeMediaVisibility = 0
-)
+// The 23/24/26 probes above were empty-payload and made while this pairing was
+// still refused for lack of view/manage permission. That permission has since
+// been granted on the frame, so their error-code-5 results say nothing about
+// those numbers any more and all three are worth re-probing, 23 with a real
+// media id in the payload.
+//
+// Probing for MediaUpdate's number is dangerous in a way the others are not,
+// and the reason is the wire format rather than anything about the frame.
+// MediaUpdate is {Media media = 1}, a length-delimited field 1. DeleteMedia is
+// {repeated sint64 mediaIds = 1}, and a packed repeated field is *also*
+// length-delimited field 1, so a DeleteMedia parser reads the Media submessage
+// as a packed zigzag array — and the media id inside it, being a zigzag varint
+// already, decodes back to itself. A MediaUpdate probe therefore reads as a
+// deletion naming the very photo it was meant to edit, which is exactly how
+// the 34 result above came about. The same collision makes a hide request
+// indistinguishable from a deletion: IsVisible is false by default and proto3
+// omits default values, so ChangeMediaVisibility{ids, IsVisible: false} and
+// DeleteMedia{ids} serialise to identical bytes. Setting IsVisible true does
+// not help either; DeleteMedia simply ignores the extra field.
+//
+// So there is no payload that is safe to aim at an unknown number. The only
+// protection is the media id: probe with a throwaway photo uploaded for the
+// purpose and never put a wanted photo's id in an experimental request.
 
-// ErrTypeUnknown means an operation needs a message number that has not been
-// determined yet.
-var ErrTypeUnknown = errors.New("frameo: this operation's message number is not known yet")
+// MediaUpdate's number is the one this client still needs and does not have.
+// It edits an already-uploaded photo's caption, crop and capture date in
+// place, and nothing above sends it: the app has no send site for it anywhere
+// in a decompile of v1.40.5, so there is no source to read the number from.
+// Find it by probing against a throwaway photo and watching the listing's
+// captureDate, which is the only field of a MediaUpdate the listing reports
+// back — but read the collision note above first, because a MediaUpdate probe
+// aimed at the wrong number reads as a deletion of the photo it names.
+const TypeMediaUpdate = 0
 
 // typeName labels a message type for logs and errors.
 func typeName(t int32) string {
@@ -96,6 +158,10 @@ func typeName(t int32) string {
 		return "AllMediaMetaData"
 	case TypeGetAllMediaMetaData:
 		return "GetAllMediaMetaData"
+	case TypeDeleteMedia:
+		return "DeleteMedia"
+	case TypeChangeMediaVisibility:
+		return "ChangeMediaVisibility"
 	case TypeCalendarStatuses:
 		return "CalendarStatuses"
 	default:

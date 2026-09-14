@@ -42,6 +42,9 @@ type Frame struct {
 	ListType int32
 	// DeleteType is the message number this frame accepts deletions on.
 	DeleteType int32
+	// VisibilityType is the message number this frame accepts visibility
+	// changes on. Configurable for the same reason as ListType.
+	VisibilityType int32
 	// Library is what a listing reports.
 	Library []*pb.MediaMetaData
 
@@ -152,6 +155,29 @@ func (f *Frame) handle(rw MessageRW, msg []byte) error {
 		}
 		f.mu.Lock()
 		f.deleted = append(f.deleted, req.GetMediaIds()...)
+		f.mu.Unlock()
+		if id := req.GetRequiresAcknowledgeReceiptId(); id != 0 {
+			return send(rw, 6, &pb.AcknowledgeReceipt{AcknowledgeId: id})
+		}
+		return nil
+	}
+
+	if f.VisibilityType != 0 && msgType == f.VisibilityType {
+		var req pb.ChangeMediaVisibility
+		if err := proto.Unmarshal(payload, &req); err != nil {
+			return fmt.Errorf("frameotest: malformed visibility request: %w", err)
+		}
+		// A real frame keeps a hidden photo and reports it as hidden in the
+		// listing, so the change is applied to the library rather than
+		// recorded separately.
+		f.mu.Lock()
+		for _, id := range req.GetMediaIds() {
+			for _, m := range f.Library {
+				if m.GetMediaId() == id {
+					m.IsVisible = req.GetIsVisible()
+				}
+			}
+		}
 		f.mu.Unlock()
 		if id := req.GetRequiresAcknowledgeReceiptId(); id != 0 {
 			return send(rw, 6, &pb.AcknowledgeReceipt{AcknowledgeId: id})

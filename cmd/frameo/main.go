@@ -29,6 +29,8 @@ Commands:
   info               describe the frame
   send <file>...     send photos
   list               list the photos on the frame
+  hide <id>...       hide photos without removing them
+  show <id>...       show photos that were hidden
   delete <id>...     remove photos from the frame
   frames             list paired frames
   forget <name>      forget a paired frame
@@ -43,11 +45,12 @@ Options:
   -timeout <dur>     give up after this long, covering the whole run (default 15m)
   -config <path>     configuration file (default: under the user config dir)
   -server <host:port>  use this grid server instead of Frameo's
-  -type <number>     message number for delete, whose number is not known yet
+  -type <number>     override the message number, to try a candidate by hand
   -v                 log the protocol exchange
 
-The number delete needs was never observed, so it refuses unless -type
-supplies one. See internal/frameo/types.go for what is known.
+delete removes a photo for good; hide keeps it on the frame and stops it
+being displayed. See internal/frameo/types.go for what is known of the
+protocol, including the one message number still missing.
 `
 
 type options struct {
@@ -127,6 +130,10 @@ func run(args []string, stdout io.Writer) error {
 		return cmdSend(ctx, cfg, &o, rest)
 	case "list":
 		return cmdList(ctx, cfg, &o)
+	case "hide":
+		return cmdSetVisible(ctx, cfg, &o, rest, false)
+	case "show":
+		return cmdSetVisible(ctx, cfg, &o, rest, true)
 	case "delete":
 		return cmdDelete(ctx, cfg, &o, rest)
 	case "frames":
@@ -146,6 +153,7 @@ func run(args []string, stdout io.Writer) error {
 // command has no side effects.
 var knownCommands = map[string]bool{
 	"pair": true, "info": true, "send": true, "list": true, "delete": true,
+	"hide": true, "show": true,
 	"frames": true, "forget": true, "whoami": true, "raw": true,
 }
 
@@ -344,17 +352,57 @@ func cmdList(ctx context.Context, cfg *config.Config, o *options) error {
 	return nil
 }
 
-func cmdDelete(ctx context.Context, cfg *config.Config, o *options, args []string) error {
-	if len(args) == 0 {
-		return errors.New("usage: frameo delete <id>...")
+// cmdSetVisible hides or shows photos, which is the reversible alternative to
+// deleting them: the frame keeps the photo and stops displaying it.
+func cmdSetVisible(ctx context.Context, cfg *config.Config, o *options, args []string, visible bool) error {
+	verb := "hide"
+	if visible {
+		verb = "show"
 	}
+	if len(args) == 0 {
+		return fmt.Errorf("usage: frameo %s <id>...", verb)
+	}
+	ids, err := parseIDs(args)
+	if err != nil {
+		return err
+	}
+
+	c, name, err := connect(ctx, cfg, o)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	if err := c.SetMediaVisible(ctx, ids, visible, int32(o.msgType)); err != nil {
+		return err
+	}
+	shown := "Hid"
+	if visible {
+		shown = "Showed"
+	}
+	fmt.Fprintf(o.out, "%s %d item(s) on %s.\n", shown, len(ids), name)
+	return nil
+}
+
+func parseIDs(args []string) ([]int64, error) {
 	ids := make([]int64, 0, len(args))
 	for _, a := range args {
 		id, err := strconv.ParseInt(a, 10, 64)
 		if err != nil {
-			return fmt.Errorf("%q is not a photo id", a)
+			return nil, fmt.Errorf("%q is not a photo id", a)
 		}
 		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func cmdDelete(ctx context.Context, cfg *config.Config, o *options, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: frameo delete <id>...")
+	}
+	ids, err := parseIDs(args)
+	if err != nil {
+		return err
 	}
 
 	c, name, err := connect(ctx, cfg, o)

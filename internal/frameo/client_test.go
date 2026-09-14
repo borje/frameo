@@ -3,7 +3,6 @@ package frameo_test
 import (
 	"bytes"
 	"context"
-	"errors"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -293,23 +292,81 @@ func TestSendSeveralPhotos(t *testing.T) {
 	}
 }
 
-// The message numbers these need travel from client to frame and were not
-// recovered from the frame's receive dispatch, so the commands must refuse
-// rather than send something the frame would misread.
-func TestMediaManagementNeedsUnknownMessageNumbers(t *testing.T) {
+func TestDeleteMedia(t *testing.T) {
 	frame := frameotest.New()
+	frame.DeleteType = frameo.TypeDeleteMedia
 	c := setup(t, frame)
 	ctx := testCtx(t)
 
-	if err := c.DeleteMedia(ctx, []int64{1}, 0); !errors.Is(err, frameo.ErrTypeUnknown) {
-		t.Errorf("DeleteMedia err = %v, want ErrTypeUnknown", err)
+	if err := c.DeleteMedia(ctx, []int64{1, 2}, 0); err != nil {
+		t.Fatalf("DeleteMedia: %v", err)
 	}
-	if err := c.SetMediaVisible(ctx, []int64{1}, false, 0); !errors.Is(err, frameo.ErrTypeUnknown) {
-		t.Errorf("SetMediaVisible err = %v, want ErrTypeUnknown", err)
+	if got := frame.Deleted(); len(got) != 2 || got[0] != 1 || got[1] != 2 {
+		t.Errorf("frame was asked to delete %v, want [1 2]", got)
 	}
-	// Nothing to do is not an error, even when the number is unknown.
+	// Nothing to do is not an error, and must not reach the frame.
 	if err := c.DeleteMedia(ctx, nil, 0); err != nil {
 		t.Errorf("DeleteMedia with no ids = %v, want nil", err)
+	}
+	if got := frame.Deleted(); len(got) != 2 {
+		t.Errorf("an empty deletion still reached the frame: %v", got)
+	}
+}
+
+// Hiding a photo keeps it on the frame, which is what separates it from
+// deleting: the listing still reports the photo, marked hidden.
+func TestSetMediaVisible(t *testing.T) {
+	frame := frameotest.New()
+	frame.ListType = frameo.TypeGetAllMediaMetaData
+	frame.VisibilityType = frameo.TypeChangeMediaVisibility
+	frame.Library = []*pb.MediaMetaData{
+		{MediaId: 1, IsVisible: true},
+		{MediaId: 2, IsVisible: true},
+	}
+	c := setup(t, frame)
+	ctx := testCtx(t)
+
+	if err := c.SetMediaVisible(ctx, []int64{1}, false, 0); err != nil {
+		t.Fatalf("SetMediaVisible: %v", err)
+	}
+	items, err := c.ListMedia(ctx)
+	if err != nil {
+		t.Fatalf("ListMedia: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("got %d items, want the hidden photo to still be listed", len(items))
+	}
+	if items[0].GetIsVisible() {
+		t.Errorf("photo 1 is still visible")
+	}
+	if !items[1].GetIsVisible() {
+		t.Errorf("photo 2 was hidden too, and should not have been")
+	}
+
+	if err := c.SetMediaVisible(ctx, []int64{1}, true, 0); err != nil {
+		t.Fatalf("SetMediaVisible back: %v", err)
+	}
+	if items, err = c.ListMedia(ctx); err != nil {
+		t.Fatalf("ListMedia: %v", err)
+	}
+	if !items[0].GetIsVisible() {
+		t.Errorf("photo 1 was not shown again")
+	}
+}
+
+// An override still wins, so a candidate number can be tried against a real
+// frame without editing the constant.
+func TestSetMediaVisibleHonoursTypeOverride(t *testing.T) {
+	frame := frameotest.New()
+	frame.VisibilityType = 99
+	frame.Library = []*pb.MediaMetaData{{MediaId: 1, IsVisible: true}}
+	c := setup(t, frame)
+
+	if err := c.SetMediaVisible(testCtx(t), []int64{1}, false, 99); err != nil {
+		t.Fatalf("SetMediaVisible: %v", err)
+	}
+	if frame.Library[0].GetIsVisible() {
+		t.Errorf("the frame did not apply the change sent on the override number")
 	}
 }
 

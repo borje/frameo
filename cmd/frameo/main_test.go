@@ -257,19 +257,57 @@ func TestListAndDeleteWithASuppliedMessageNumber(t *testing.T) {
 		}
 	}
 
-	// Without a number, delete must refuse and say what to try.
-	if _, err := runCLI(t, "-server", server, "delete", "111"); err == nil {
-		t.Fatal("delete should refuse without a message number")
-	}
-
-	if _, err := runCLI(t, "-server", server, "-type", "34", "delete", "111"); err != nil {
+	if _, err := runCLI(t, "-server", server, "delete", "111"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if got := frame.Deleted(); len(got) != 1 || got[0] != 111 {
 		t.Errorf("frame was asked to delete %v, want [111]", got)
 	}
 
-	if _, err := runCLI(t, "-server", server, "-type", "34", "delete", "notanumber"); err == nil {
+	if _, err := runCLI(t, "-server", server, "delete", "notanumber"); err == nil {
 		t.Error("want an error for an id that is not a number")
+	}
+}
+
+// Hiding and showing go through the same path as deleting but leave the photo
+// on the frame, so the listing still reports it.
+func TestHideAndShow(t *testing.T) {
+	withConfig(t)
+	frame := frameotest.New()
+	frame.ListType = frameo.TypeGetAllMediaMetaData
+	frame.VisibilityType = frameo.TypeChangeMediaVisibility
+	frame.Library = []*pb.MediaMetaData{{MediaId: 111, IsVisible: true}}
+	server, code := startFakeFrame(t, frame)
+
+	if _, err := runCLI(t, "-server", server, "pair", code); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runCLI(t, "-server", server, "hide", "111"); err != nil {
+		t.Fatalf("hide: %v", err)
+	}
+	out, err := runCLI(t, "-server", server, "list")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(out, "111") || !strings.Contains(out, "hidden") {
+		t.Errorf("want photo 111 listed as hidden:\n%s", out)
+	}
+
+	if _, err := runCLI(t, "-server", server, "show", "111"); err != nil {
+		t.Fatalf("show: %v", err)
+	}
+	if out, err = runCLI(t, "-server", server, "list"); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(out, "shown") {
+		t.Errorf("want photo 111 listed as shown:\n%s", out)
+	}
+
+	if _, err := runCLI(t, "-server", server, "hide", "notanumber"); err == nil {
+		t.Error("want an error for an id that is not a number")
+	}
+	if _, err := runCLI(t, "-server", server, "hide"); err == nil {
+		t.Error("want an error when no ids are given")
 	}
 }
