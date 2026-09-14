@@ -30,23 +30,33 @@ const (
 	TypeCalendarStatuses   = 40
 )
 
-// Message numbers this client needs but does not know. They were never
-// observed: the numbers above come from the dispatch table in the app, and
-// these three appear only at its send sites.
+// Message numbers this client needs but does not know. GetAllMediaMetaData,
+// DeleteMedia and ChangeMediaVisibility are defined in the app's protobuf
+// schema and the app has receive-side dispatch cases for their replies (32,
+// and for the related AllMediaIds/AllMediaIdsSegment pair, 25/26), but the app
+// itself has no send site for any of the three requests anywhere in its code
+// (checked against a decompile of v1.40.5). The phone never asks for these;
+// whatever sends them lives in the frame's firmware, which is not available to
+// inspect. So there is no source to read the numbers from, guessed or
+// otherwise.
 //
 // Zero means unknown, and the commands that need them refuse rather than send
 // a message a frame might read as something else entirely. Supply a candidate
 // with the command line's -type option to try one against a real frame.
 //
-// There is a well-supported guess for the first. Every request whose answer is
-// known is numbered one below that answer: GetInfo is 1 and FrameInfo is 2,
-// and the same holds at 7/8, 18/19, 21/22, 42/43 and 47/48. AllMediaMetaData
-// is 32, which puts GetAllMediaMetaData at 31. It is a request for a listing,
-// so trying it costs nothing if the guess is wrong.
+// CandidateGetAllMediaMetaData is a guess, not a recovered value: requests are
+// often numbered one below their answer elsewhere in this protocol (GetInfo/
+// FrameInfo at 1/2, and the same gap at 7/8, 18/19, 21/22, 42/43, 47/48), and
+// AllMediaMetaData's reply is 32, so 31 is the first thing worth trying. It is
+// read-only, so trying it costs nothing if wrong. 24 is a second candidate
+// worth trying, by the same one-below pattern applied to AllMediaIds (25)
+// instead. Confirming either still needs a real frame.
 //
-// The other two have no answering message to anchor them, and both change what
-// is on the frame, so guessing is not worth the risk. Their numbers are in the
-// app's own source, at the send sites in SDGController.
+// DeleteMedia and ChangeMediaVisibility have no answering message to anchor a
+// guess at all, and both change what is on the frame, so this client does not
+// guess them. Finding them needs either a live capture of a real remote-manage
+// session, or a live probe with `frameo raw <n>` against a real frame, judging
+// success by whether the frame answers or by inspecting its state afterward.
 const (
 	// CandidateGetAllMediaMetaData is the inferred number described above.
 	CandidateGetAllMediaMetaData = 31
