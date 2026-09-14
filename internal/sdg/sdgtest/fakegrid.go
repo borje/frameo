@@ -198,7 +198,7 @@ func (g *Grid) serve(ln net.Listener, handle func(net.Conn)) {
 // handleGrid serves one client's grid connection.
 func (g *Grid) handleGrid(nc net.Conn) {
 	t := newTunnel(nc, g.Long)
-	if err := t.handshake(true); err != nil {
+	if err := t.handshake(NeedCertificate); err != nil {
 		g.record(fmt.Errorf("grid handshake: %w", err))
 		return
 	}
@@ -375,7 +375,7 @@ func (g *Grid) handleRelay(nc net.Conn) {
 	}
 
 	t.long = target.dev.long
-	if err := t.handshake(false); err != nil {
+	if err := t.handshake(NoTrailer); err != nil {
 		g.record(fmt.Errorf("relay: device handshake: %w", err))
 		return
 	}

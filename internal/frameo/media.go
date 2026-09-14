@@ -371,6 +371,11 @@ func (c *Client) getMediaOnce(parent context.Context, f Fetch, retry bool) (*Dow
 				return nil, fmt.Errorf("frameo: the frame offered photo %d as %d bytes", f.ID, m.GetSize())
 			}
 			size = int(m.GetSize())
+			// What the header says is worth seeing: whether the frame echoes
+			// the id, whether it dates the photo, and whether it describes a
+			// thumbnail after it are all answered here and nowhere else.
+			c.log.Debug("photo header", "asked", f.ID, "id", m.GetId(), "size", m.GetSize(),
+				"extras", len(m.GetExtra()), "captureDate", m.GetCaptureDate())
 			extra, err := extraBytes(&m)
 			if err != nil {
 				return nil, fmt.Errorf("frameo: photo %d: %w", f.ID, err)

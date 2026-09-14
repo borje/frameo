@@ -12,26 +12,45 @@ const (
 	heloPayloadSize = KeySize + 8 + (64 + boxOverhead)          // 120
 	cookPayloadSize = 16 + (KeySize + cookieSize + boxOverhead) // 160
 	cookieSize      = 96
-	// voch is variable: the certificate blob is present only towards the grid.
+	// voch is variable: the trailer is present only towards a grid or a frame's
+	// local listener.
 	vouchInnerSize = KeySize + boxOverhead             // 48
 	vouchOuterSize = KeySize + 16 + vouchInnerSize + 1 // 97, before sealing
 )
 
+// vochProperty encodes one entry of the VOCH trailer: a length-prefixed,
+// NUL-terminated name followed by a length-prefixed value. Both lengths are a
+// single byte and neither counts the NUL, so a name or value of 256 bytes or
+// more cannot be expressed.
+//
+// The trailer is how a VOCH says something about the connection beyond who is
+// making it. A grid connection puts a licence certificate here; a direct
+// connection to a frame on the local network puts the service it is calling
+// (see DialLocal), which is the only way the frame learns that, there being no
+// grid in the middle to tell it.
+func vochProperty(name string, value []byte) []byte {
+	b := make([]byte, 0, 1+len(name)+1+1+len(value))
+	b = append(b, byte(len(name)))
+	b = append(b, name...)
+	b = append(b, 0)
+	b = append(b, byte(len(value)))
+	return append(b, value...)
+}
+
 // certificateBlob is the licence key a client appends to its VOCH when talking
-// to a grid server: a length-prefixed "certificate" label followed by a
-// length-prefixed key. An unlicensed client reports an all-zero key, which is
+// to a grid server. An unlicensed client reports an all-zero key, which is
 // what the original library does and what the grid accepts.
 func certificateBlob(key []byte) []byte {
 	const keyLen = 128
-	blob := make([]byte, 0, 1+12+1+keyLen)
-	blob = append(blob, 11) // len("certificate")
-	blob = append(blob, "certificate\x00"...)
-	blob = append(blob, keyLen)
-	blob = append(blob, make([]byte, keyLen)...)
-	if len(key) > 0 {
-		copy(blob[14:], key[:min(len(key), keyLen)])
-	}
-	return blob
+	value := make([]byte, keyLen)
+	copy(value, key[:min(len(key), keyLen)])
+	return vochProperty("certificate", value)
+}
+
+// protocolBlob is the service name a caller appends to its VOCH when
+// connecting straight to a frame on the local network.
+func protocolBlob(protocol string) []byte {
+	return vochProperty("protocol", []byte(protocol))
 }
 
 // decodeWelc extracts the server's long-term public key.
@@ -75,28 +94,29 @@ func decodeCook(payload []byte, serverLongPK, shortSK *Key) (serverShortPK Key, 
 
 // encodeVoch builds the VOCH packet body. The outer box, sealed with the
 // session key, carries our long-term identity plus an inner box that binds our
-// ephemeral key to it. cert is appended only for grid connections; peers get
-// no certificate at all.
-func encodeVoch(cookie []byte, ctr uint64, longPK, longSK, shortPK, serverLongPK *Key, shared *[32]byte, cert []byte) ([]byte, error) {
+// ephemeral key to it, and then a trailer: a count of the properties that
+// follow, and the properties themselves. Only one property is ever sent, so
+// the count is 0 or 1; whether a larger count is accepted has not been tried.
+func encodeVoch(cookie []byte, ctr uint64, longPK, longSK, shortPK, serverLongPK *Key, shared *[32]byte, props []byte) ([]byte, error) {
 	var r [16]byte
 	if _, err := rand.Read(r[:]); err != nil {
 		return nil, fmt.Errorf("sdg: VOCH nonce: %w", err)
 	}
-	return encodeVochWith(cookie, ctr, r, longPK, longSK, shortPK, serverLongPK, shared, cert), nil
+	return encodeVochWith(cookie, ctr, r, longPK, longSK, shortPK, serverLongPK, shared, props), nil
 }
 
 // encodeVochWith is encodeVoch with the inner box's nonce supplied, so the
 // packet can be compared against a known-good one.
-func encodeVochWith(cookie []byte, ctr uint64, r [16]byte, longPK, longSK, shortPK, serverLongPK *Key, shared *[32]byte, cert []byte) []byte {
+func encodeVochWith(cookie []byte, ctr uint64, r [16]byte, longPK, longSK, shortPK, serverLongPK *Key, shared *[32]byte, props []byte) []byte {
 	inner := seal(shortPK[:], longNonce(noncePrefixVoucher, r[:]), serverLongPK, longSK)
 
-	outer := make([]byte, 0, vouchOuterSize+len(cert))
+	outer := make([]byte, 0, vouchOuterSize+len(props))
 	outer = append(outer, longPK[:]...)
 	outer = append(outer, r[:]...)
 	outer = append(outer, inner...)
-	if len(cert) > 0 {
+	if len(props) > 0 {
 		outer = append(outer, 1)
-		outer = append(outer, cert...)
+		outer = append(outer, props...)
 	} else {
 		outer = append(outer, 0)
 	}

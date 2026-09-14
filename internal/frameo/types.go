@@ -54,16 +54,20 @@ const (
 	// which is what makes this observable at all.
 	TypeChangeMediaVisibility = 33
 
-	// TypeGetMedia asks the frame to send one stored photo back. Taken from a
-	// decompile of the app rather than from a probe: net.frameo.app v1.40.5
-	// builds a GetMedia and sends it on 23, and the frame answers with a
-	// Media(4) header followed by MediaDataSegment(5) bytes -- the same pair
-	// the upload path uses, pointed the other way. See GETMEDIA.md.
+	// TypeGetMedia asks the frame to send one stored photo back. The number
+	// came from a decompile of the app rather than from a probe:
+	// net.frameo.app v1.40.5 builds a GetMedia and sends it on 23, and the
+	// frame answers with a Media(4) header followed by MediaDataSegment(5)
+	// bytes -- the same pair the upload path uses, pointed the other way. See
+	// GETMEDIA.md.
 	//
-	// Not yet confirmed live. The only reply ever seen from 23 on a real frame
-	// was the permission refusal noted below, sent before this pairing had view
-	// permission, so it neither confirms nor contradicts the number. A genuine
-	// photo coming back is what would settle it.
+	// Since confirmed against a real frame, over a direct local connection and
+	// over the relay alike: a GetMedia sent to 23 brought back a photo that opens,
+	// with the byte count the header announced. The header also answered what
+	// GETMEDIA.md could only infer -- the frame echoes the id it was asked
+	// for, dates the photo, and describes no extra streams at all, so a
+	// full-resolution reply does not append the thumbnail. Asking for a scaled
+	// copy behaves the same way.
 	TypeGetMedia = 23
 )
 
@@ -74,8 +78,8 @@ const (
 // false` on this pairing), never a genuine positive payload. Naming these as
 // constants waits on that positive confirmation.
 //
-//   - 23 is no longer on this list: it is TypeGetMedia above, on the strength
-//     of the decompile rather than of this probe. What the probe saw is still
+//   - 23 is no longer on this list: it is TypeGetMedia above, confirmed since
+//     by a fetch that brought back a photo. What this probe saw is still
 //     worth recording, because it agrees: an empty payload sent to 23 drew a
 //     `Media`-shaped message carrying `Error{Code: 5}` at field 11, matching
 //     Media's own error field exactly (payload hex 5a020805 decodes to field

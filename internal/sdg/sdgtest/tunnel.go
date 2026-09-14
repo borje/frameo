@@ -53,10 +53,11 @@ type Tunnel struct {
 
 	ctr uint64
 
-	// Certificate records whether the client's VOCH carried a licence blob,
-	// and what it contained.
-	Certificate []byte
-	HadCert     bool
+	// Properties are the entries of the client's VOCH trailer, by name. A
+	// grid connection sends a licence certificate, a direct local connection
+	// sends the service it is calling, and a relayed peer connection sends
+	// nothing at all.
+	Properties map[string][]byte
 
 	// lastClientCtr tracks the client's nonce counter so tests can assert it
 	// advances by one per encrypted packet, which a real server relies on.
@@ -134,7 +135,27 @@ func (t *Tunnel) checkClientCtr(ctr uint64) error {
 
 // handshake runs the server side of the Tunnel setup. grid selects whether a
 // licence certificate is required in the client's VOCH.
-func (t *Tunnel) handshake(grid bool) error {
+// TrailerRule says what a server requires of the client's VOCH trailer.
+type TrailerRule int
+
+const (
+	// NoTrailer is a relayed peer connection: the grid has already said which
+	// service is wanted, so the VOCH says nothing.
+	NoTrailer TrailerRule = iota
+	// NeedCertificate is a grid connection.
+	NeedCertificate
+	// NeedProtocol is a direct connection over the local network, where the
+	// service name has nowhere else to travel.
+	NeedProtocol
+)
+
+// Certificate is the licence blob the client sent, if any.
+func (t *Tunnel) Certificate() []byte { return t.Properties["certificate"] }
+
+// Protocol is the service name the client asked for, empty if it sent none.
+func (t *Tunnel) Protocol() string { return string(t.Properties["protocol"]) }
+
+func (t *Tunnel) handshake(rule TrailerRule) error {
 	cmd, _, err := t.readPacket()
 	if err != nil {
 		return err
@@ -224,15 +245,22 @@ func (t *Tunnel) handshake(grid bool) error {
 	if string(vouched) != string(clientShortPK[:]) {
 		return errors.New("sdgtest: VOCH does not vouch for the ephemeral key used in HELO")
 	}
-	t.HadCert = outer[96] == 1
-	if t.HadCert {
-		t.Certificate = append([]byte{}, outer[97:]...)
+	if t.Properties, err = parseTrailer(outer[96:]); err != nil {
+		return err
 	}
-	if grid && !t.HadCert {
-		return errors.New("sdgtest: grid VOCH arrived without a certificate")
-	}
-	if !grid && t.HadCert {
-		return errors.New("sdgtest: peer VOCH must not carry a certificate")
+	switch rule {
+	case NeedCertificate:
+		if _, ok := t.Properties["certificate"]; !ok {
+			return errors.New("sdgtest: grid VOCH arrived without a certificate")
+		}
+	case NeedProtocol:
+		if p := t.Protocol(); p == "" {
+			return errors.New("sdgtest: local VOCH arrived without a service name")
+		}
+	case NoTrailer:
+		if len(t.Properties) > 0 {
+			return errors.New("sdgtest: relayed peer VOCH must carry no properties")
+		}
 	}
 
 	return t.writeRaw("REDY", "CurveCP-server-R", []byte{0})
@@ -292,3 +320,39 @@ func (t *Tunnel) Recv() ([]byte, error) {
 type cryptoRand struct{}
 
 func (cryptoRand) Read(p []byte) (int, error) { return rand.Read(p) }
+
+// parseTrailer reads the properties at the end of an opened VOCH box: a count,
+// then that many entries of a length-prefixed NUL-terminated name and a
+// length-prefixed value.
+func parseTrailer(b []byte) (map[string][]byte, error) {
+	props := map[string][]byte{}
+	if len(b) == 0 {
+		return nil, errors.New("sdgtest: VOCH outer box has no trailer at all")
+	}
+	count := int(b[0])
+	b = b[1:]
+	for range count {
+		if len(b) < 1 {
+			return nil, errors.New("sdgtest: VOCH trailer ends inside a property name")
+		}
+		n := int(b[0])
+		if len(b) < 1+n+1+1 {
+			return nil, errors.New("sdgtest: VOCH property name runs past the trailer")
+		}
+		name := string(b[1 : 1+n])
+		if b[1+n] != 0 {
+			return nil, errors.New("sdgtest: VOCH property name is not NUL terminated")
+		}
+		b = b[1+n+1:]
+		v := int(b[0])
+		if len(b) < 1+v {
+			return nil, errors.New("sdgtest: VOCH property value runs past the trailer")
+		}
+		props[name] = append([]byte{}, b[1:1+v]...)
+		b = b[1+v:]
+	}
+	if len(b) != 0 {
+		return nil, fmt.Errorf("sdgtest: %d bytes left over after the VOCH trailer", len(b))
+	}
+	return props, nil
+}

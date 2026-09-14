@@ -14,14 +14,15 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// mode selects the handshake variant. The three differ only in what is
-// appended to VOCH and in what happens once the tunnel is up.
+// mode selects the handshake variant. They differ only in what is appended to
+// VOCH and in what happens once the tunnel is up.
 type mode int
 
 const (
 	modeGrid mode = iota
 	modePeer
 	modePairing
+	modeLocal
 )
 
 func (m mode) String() string {
@@ -30,6 +31,8 @@ func (m mode) String() string {
 		return "grid"
 	case modePeer:
 		return "peer"
+	case modeLocal:
+		return "local"
 	default:
 		return "pairing"
 	}
@@ -191,19 +194,21 @@ func (c *conn) dump(what string, b []byte) {
 // mismatch means the grid connected us to the wrong device. Pairing passes nil
 // because learning that key is the whole point of pairing.
 //
-// cert is appended to VOCH; it is non-empty only for grid connections.
-func (c *conn) handshake(m mode, expect *Key, longPK, longSK *Key, cert []byte) error {
+// props is the VOCH trailer: a licence certificate towards a grid, the service
+// name towards a frame's local listener, and nothing at all over a relay,
+// where the grid has already told the frame which service is being called.
+func (c *conn) handshake(m mode, expect *Key, longPK, longSK *Key, props []byte) error {
 	var allowed []Key
 	if expect != nil {
 		allowed = []Key{*expect}
 	}
-	return c.handshakeAny(m, allowed, longPK, longSK, cert)
+	return c.handshakeAny(m, allowed, longPK, longSK, props)
 }
 
 // handshakeAny is handshake with a set of acceptable remote keys rather than a
 // single one, which is what pinning a grid's servers needs. An empty set
 // accepts any key.
-func (c *conn) handshakeAny(m mode, allowed []Key, longPK, longSK *Key, cert []byte) error {
+func (c *conn) handshakeAny(m mode, allowed []Key, longPK, longSK *Key, props []byte) error {
 	if err := c.writeBody(tellPacket()); err != nil {
 		return fmt.Errorf("sdg: %s: send TELL: %w", c.role, err)
 	}
@@ -241,10 +246,10 @@ func (c *conn) handshakeAny(m mode, allowed []Key, longPK, longSK *Key, cert []b
 	}
 	c.shared = precompute(&serverShortPK, &c.shortSK)
 
-	if m != modeGrid {
-		cert = nil
+	if m == modePeer || m == modePairing {
+		props = nil
 	}
-	voch, err := encodeVoch(cookie, c.nextCtr(), longPK, longSK, &c.shortPK, &c.serverLongPK, &c.shared, cert)
+	voch, err := encodeVoch(cookie, c.nextCtr(), longPK, longSK, &c.shortPK, &c.serverLongPK, &c.shared, props)
 	if err != nil {
 		return err
 	}

@@ -522,3 +522,54 @@ func TestGetNamesPhotosByWhenTheyWereTaken(t *testing.T) {
 		t.Errorf("directory holds %v, want %v", names, want)
 	}
 }
+
+func TestNetFlagIsChecked(t *testing.T) {
+	withConfig(t)
+	// A mistyped -net must be caught before anything is attempted, since
+	// falling back to a default would send a photo the long way round without
+	// saying so.
+	_, err := runCLI(t, "-net", "lan", "info")
+	if err == nil || !strings.Contains(err.Error(), "lan") {
+		t.Errorf("err = %v, want it to name the unusable -net value", err)
+	}
+	for _, how := range []string{"auto", "local", "relay"} {
+		if _, err := runCLI(t, "-net", how); err == nil || strings.Contains(err.Error(), how) {
+			t.Errorf("-net %s was rejected: %v", how, err)
+		}
+	}
+}
+
+func TestDiscoverFlagIsChecked(t *testing.T) {
+	withConfig(t)
+	// A window of zero or less is over before the first query goes out, which
+	// turns every run into a relay run without saying so: the same silent
+	// wrong route -net is checked to prevent.
+	for _, window := range []string{"0", "-2s"} {
+		if _, err := runCLI(t, "-discover", window, "info"); err == nil || !strings.Contains(err.Error(), "-discover") {
+			t.Errorf("-discover %s: err = %v, want it to name the unusable window", window, err)
+		}
+	}
+	if _, err := runCLI(t, "-discover", "1s"); err == nil || strings.Contains(err.Error(), "-discover") {
+		t.Errorf("-discover 1s was rejected: %v", err)
+	}
+}
+
+// TestNamedServerMeansTheRelay covers the rule that keeps these tests off the
+// network: a grid named with -server is a deliberate route, so the local
+// network is not searched unless -net asks for it.
+func TestNamedServerMeansTheRelay(t *testing.T) {
+	o := &options{network: networkAuto, server: "127.0.0.1:1"}
+	if tryLocally(o) {
+		t.Error("a named grid server still searched the local network")
+	}
+	o.network = networkLocal
+	if !tryLocally(o) {
+		t.Error("-net local did not search the local network")
+	}
+	if tryLocally(&options{network: networkRelay}) {
+		t.Error("-net relay searched the local network")
+	}
+	if !tryLocally(&options{network: networkAuto}) {
+		t.Error("the default did not search the local network")
+	}
+}

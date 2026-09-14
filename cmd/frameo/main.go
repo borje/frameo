@@ -17,6 +17,7 @@ import (
 
 	"frameo/internal/config"
 	"frameo/internal/frameo"
+	"frameo/internal/mdns"
 	"frameo/internal/sdg"
 )
 
@@ -34,6 +35,7 @@ Commands:
   hide <id>...       hide photos without removing them
   show <id>...       show photos that were hidden
   delete <id>...     remove photos from the frame
+  discover           find frames on the local network
   frames             list paired frames
   forget <name>      forget a paired frame
   whoami             print this client's own identity
@@ -41,6 +43,11 @@ Commands:
 
 Options:
   -frame <name>      which paired frame to use (default: the first one paired)
+  -net <how>         local, relay or auto: whether to reach the frame directly
+                     over the local network, through the relay, or try the
+                     local network first and fall back (default auto)
+  -discover <dur>    how long to look for the frame on the local network
+                     (default 2s)
   -caption <text>    caption to send with a photo
   -out <path>        where get writes: a file for one photo, a directory for many
   -size <pixels>     ask get for a copy scaled to fit this square
@@ -49,7 +56,8 @@ Options:
   -single-segment    send each photo as one message instead of a series
   -timeout <dur>     give up after this long, covering the whole run (default 15m)
   -config <path>     configuration file (default: under the user config dir)
-  -server <host:port>  use this grid server instead of Frameo's
+  -server <host:port>  use this grid server instead of Frameo's, which also
+                     means the relay unless -net says otherwise
   -v                 log the protocol exchange
 
 get writes each photo as <date>_<time>_<id>.<extension> in the current
@@ -58,10 +66,15 @@ order the photos were taken. A frame that reports no capture date leaves the
 photo named by its id alone. get keeps going past a photo it cannot fetch, so
 one missing id does not cost the rest.
 
+A frame on the same network is reached directly, which skips the relay
+entirely and is much faster for a large photo. It is found by the name it
+advertises over mDNS; discover shows what that finds. A network that blocks
+multicast, or a frame that is elsewhere, falls back to the relay without
+saying anything unless -v is given.
+
 delete removes a photo for good; hide keeps it on the frame and stops it
 being displayed. See internal/frameo/types.go for what is known of the
-protocol, including the one message number still missing and the one taken
-from a decompile that no frame has yet confirmed.
+protocol, including the one message number still missing.
 `
 
 type options struct {
@@ -74,6 +87,8 @@ type options struct {
 	fit           bool
 	singleSegment bool
 	timeout       time.Duration
+	network       string
+	discover      time.Duration
 	configPath    string
 	server        string
 	verbose       bool
@@ -99,11 +114,25 @@ func run(args []string, stdout io.Writer) error {
 	fs.BoolVar(&o.fit, "fit", false, "fit the whole photo on screen")
 	fs.BoolVar(&o.singleSegment, "single-segment", false, "send each photo as one message")
 	fs.DurationVar(&o.timeout, "timeout", 15*time.Minute, "give up after this long")
+	fs.StringVar(&o.network, "net", networkAuto, "local, relay or auto")
+	fs.DurationVar(&o.discover, "discover", 2*time.Second, "how long to look for the frame on the local network")
 	fs.StringVar(&o.configPath, "config", "", "configuration file")
 	fs.StringVar(&o.server, "server", "", "grid server to use")
 	fs.BoolVar(&o.verbose, "v", false, "log the protocol exchange")
 	if err := fs.Parse(args); err != nil {
 		return errors.New("run \"frameo\" with no arguments for usage")
+	}
+
+	switch o.network {
+	case networkAuto, networkLocal, networkRelay:
+	default:
+		return fmt.Errorf("-net %q: expected %s, %s or %s", o.network, networkLocal, networkRelay, networkAuto)
+	}
+	// A window of zero or less is already over before the first query goes
+	// out, which silently turns every run into a relay run: the same
+	// wrong-route-without-saying-so that -net is checked to prevent.
+	if o.discover <= 0 {
+		return fmt.Errorf("-discover %v: expected a positive duration", o.discover)
 	}
 
 	args = fs.Args()
@@ -153,6 +182,8 @@ func run(args []string, stdout io.Writer) error {
 		return cmdSetVisible(ctx, cfg, &o, rest, true)
 	case "delete":
 		return cmdDelete(ctx, cfg, &o, rest)
+	case "discover":
+		return cmdDiscover(ctx, cfg, &o)
 	case "frames":
 		return cmdFrames(cfg, &o)
 	case "forget":
@@ -172,8 +203,16 @@ var knownCommands = map[string]bool{
 	"pair": true, "info": true, "send": true, "list": true, "delete": true,
 	"get":  true,
 	"hide": true, "show": true,
-	"frames": true, "forget": true, "whoami": true, "raw": true,
+	"discover": true,
+	"frames":   true, "forget": true, "whoami": true, "raw": true,
 }
+
+// How to reach a frame. The names are the ones -net takes.
+const (
+	networkAuto  = "auto"
+	networkLocal = "local"
+	networkRelay = "relay"
+)
 
 // logger builds the protocol logger. Quiet by default, because the ordinary
 // output of these commands is the answer, not a trace.
@@ -226,26 +265,67 @@ func dialGrid(ctx context.Context, cfg *config.Config, o *options) (*sdg.Grid, e
 	})
 }
 
-// connect opens a conversation with a paired frame.
-func connect(ctx context.Context, cfg *config.Config, o *options) (*frameo.Client, string, error) {
+// link is the frame a command is talking to and how it was reached. It prints
+// as the frame's name, which is what the commands report.
+type link struct {
+	name string
+	via  string
+}
+
+func (l *link) String() string { return l.name }
+
+// connect opens a conversation with a paired frame. Unless -net says
+// otherwise it looks for the frame on the local network first and talks to it
+// directly, which keeps a photo off the relay entirely; a frame that is not
+// found there is reached the long way round.
+func connect(ctx context.Context, cfg *config.Config, o *options) (*frameo.Client, *link, error) {
 	name, peer, err := cfg.Resolve(o.frame)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
-	g, err := dialGrid(ctx, cfg, o)
+
+	// Looking for the frame on this network costs a moment, and finding
+	// nothing costs the whole discovery window. Dialling the grid at the same
+	// time means a frame that is somewhere else is no slower to reach than it
+	// was before: by the time discovery gives up, the relay is usually already
+	// waiting.
+	var grid <-chan gridDial
+	if o.network == networkAuto {
+		grid = startGrid(ctx, cfg, o)
+	}
+
+	if tryLocally(o) {
+		p, ep, err := connectLocal(ctx, cfg, o, peer)
+		switch {
+		case err == nil:
+			if grid != nil {
+				go closeGrid(grid)
+			}
+			return frameo.NewClient(p, o.logger()), &link{name: name, via: "the local network at " + ep.String()}, nil
+		case o.network == networkLocal:
+			return nil, nil, fmt.Errorf("frame %q could not be reached on the local network: %w", name, err)
+		default:
+			// The relay is the fallback for every local failure: the frame is
+			// elsewhere, or multicast does not cross this network, or it is
+			// there but not answering.
+			o.logger().Debug("not reachable locally, falling back to the relay", "frame", name, "err", err)
+		}
+	}
+
+	g, err := awaitGrid(ctx, cfg, o, grid)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	p, err := g.Connect(ctx, peer, sdg.FrameoProtocol)
 	if err != nil {
 		_ = g.Close()
 		if errors.Is(err, sdg.ErrPeerTimeout) {
-			return nil, "", fmt.Errorf("frame %q did not answer: it may be switched off or off the network", name)
+			return nil, nil, fmt.Errorf("frame %q did not answer: it may be switched off or off the network", name)
 		}
 		if errors.Is(err, sdg.ErrRefused) {
-			return nil, "", fmt.Errorf("frame %q refused the connection: the pairing may have been removed on the frame", name)
+			return nil, nil, fmt.Errorf("frame %q refused the connection: the pairing may have been removed on the frame", name)
 		}
-		return nil, "", err
+		return nil, nil, err
 	}
 	// The peer connection stands on its own, but the grid connection is no
 	// longer needed once it is up.
@@ -253,7 +333,142 @@ func connect(ctx context.Context, cfg *config.Config, o *options) (*frameo.Clien
 		<-p.Done()
 		_ = g.Close()
 	}()
-	return frameo.NewClient(p, o.logger()), name, nil
+	return frameo.NewClient(p, o.logger()), &link{name: name, via: "the relay"}, nil
+}
+
+// tryLocally reports whether to look for the frame on this network. A grid
+// server named with -server is a deliberate choice of route -- in practice a
+// test grid -- so it is taken to mean the relay unless -net says otherwise,
+// which also keeps the tests off the network.
+func tryLocally(o *options) bool {
+	if o.network == networkLocal {
+		return true
+	}
+	return o.network == networkAuto && o.server == ""
+}
+
+// gridDial is one grid connection attempt, finished.
+type gridDial struct {
+	g   *sdg.Grid
+	err error
+}
+
+// startGrid begins dialling the grid in the background.
+func startGrid(ctx context.Context, cfg *config.Config, o *options) <-chan gridDial {
+	ch := make(chan gridDial, 1)
+	go func() {
+		g, err := dialGrid(ctx, cfg, o)
+		ch <- gridDial{g, err}
+	}()
+	return ch
+}
+
+// awaitGrid takes the grid connection already being dialled, or dials one now.
+func awaitGrid(ctx context.Context, cfg *config.Config, o *options, started <-chan gridDial) (*sdg.Grid, error) {
+	if started == nil {
+		return dialGrid(ctx, cfg, o)
+	}
+	r := <-started
+	return r.g, r.err
+}
+
+// closeGrid disposes of a grid connection nobody waited for, once it arrives.
+func closeGrid(started <-chan gridDial) {
+	if r := <-started; r.g != nil {
+		_ = r.g.Close()
+	}
+}
+
+// localDialTimeout bounds the direct connection once the frame has been
+// found. A frame on this network is a few milliseconds away -- a TCP connect
+// and three handshake round trips -- so this is generous; what it rules out is
+// a frame that advertises itself but does not accept, which would otherwise
+// hold the run for the dialler's own 15 seconds and then a handshake step at a
+// time before the relay was tried.
+const localDialTimeout = 5 * time.Second
+
+// connectLocal finds the frame on the local network and connects straight to
+// it. Discovery is bounded by -discover rather than by the run's timeout: a
+// frame that is not on this network will never answer, and waiting out a long
+// timeout before falling back to the relay would be the worst of both. The
+// connection that follows is bounded by localDialTimeout for the same reason:
+// being found is not the same as being reachable.
+func connectLocal(ctx context.Context, cfg *config.Config, o *options, peer sdg.PeerID) (*sdg.Peer, sdg.Endpoint, error) {
+	var none sdg.Endpoint
+	id, err := cfg.Identity()
+	if err != nil {
+		return nil, none, err
+	}
+
+	look, cancel := context.WithTimeout(ctx, o.discover)
+	defer cancel()
+	found, err := mdns.Lookup(look, sdg.LocalService, func(instance string) bool {
+		return sdg.IsLocalInstance(instance, peer)
+	}, &mdns.Options{Logger: o.logger()})
+	if err != nil {
+		return nil, none, err
+	}
+	addr, ok := found.Addr()
+	if !ok {
+		return nil, none, fmt.Errorf("%s advertises itself on this network but gave no address", found.Instance)
+	}
+
+	ep := sdg.Endpoint{Host: addr.String(), Port: found.Port}
+	dial, cancelDial := context.WithTimeout(ctx, localDialTimeout)
+	defer cancelDial()
+	p, err := sdg.DialLocal(dial, ep, peer, id, sdg.LocalProtocol, &sdg.Options{Logger: o.logger()})
+	if err != nil {
+		// Our own budget running out reads as a bare deadline error, which
+		// says nothing about which of the two waits ended the attempt.
+		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+			return nil, ep, fmt.Errorf("%s answered discovery at %s but did not finish connecting within %v",
+				found.Instance, ep, localDialTimeout)
+		}
+		return nil, ep, err
+	}
+	return p, ep, nil
+}
+
+// cmdDiscover reports the frames advertising themselves on this network,
+// whether or not they are paired with this client. It is the thing to run when
+// a direct connection is not happening: nothing listed means the frame is not
+// visible here, which is a question about the network rather than about
+// pairing.
+func cmdDiscover(ctx context.Context, cfg *config.Config, o *options) error {
+	look, cancel := context.WithTimeout(ctx, o.discover)
+	defer cancel()
+
+	found, err := mdns.Browse(look, sdg.LocalService, &mdns.Options{Logger: o.logger()})
+	if err != nil {
+		return err
+	}
+	if len(found) == 0 {
+		fmt.Fprintf(o.out, "No frame answered on this network within %v.\n", o.discover)
+		return nil
+	}
+	for _, s := range found {
+		addr := s.Host
+		if a, ok := s.Addr(); ok {
+			addr = a.String()
+		}
+		fmt.Fprintln(o.out, sdg.Endpoint{Host: addr, Port: s.Port})
+		fmt.Fprintf(o.out, "  Advertised  %s\n", s.Instance)
+		fmt.Fprintf(o.out, "  Paired as   %s\n", pairedAs(cfg, s.Instance))
+	}
+	return nil
+}
+
+// pairedAs names the paired frame an advertised instance belongs to. The
+// advertised name is the frame's peer id with its last digit cut off, so it is
+// matched against each known frame rather than looked up.
+func pairedAs(cfg *config.Config, instance string) string {
+	for _, name := range cfg.Names() {
+		_, peer, err := cfg.Resolve(name)
+		if err == nil && sdg.IsLocalInstance(instance, peer) {
+			return name
+		}
+	}
+	return "not paired with this client"
 }
 
 func cmdPair(ctx context.Context, cfg *config.Config, o *options, args []string) error {
@@ -286,7 +501,7 @@ func cmdPair(ctx context.Context, cfg *config.Config, o *options, args []string)
 }
 
 func cmdInfo(ctx context.Context, cfg *config.Config, o *options) error {
-	c, name, err := connect(ctx, cfg, o)
+	c, frame, err := connect(ctx, cfg, o)
 	if err != nil {
 		return err
 	}
@@ -296,7 +511,8 @@ func cmdInfo(ctx context.Context, cfg *config.Config, o *options) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(o.out, "%s\n", name)
+	fmt.Fprintf(o.out, "%s\n", frame)
+	fmt.Fprintf(o.out, "  Reached     over %s\n", frame.via)
 	fmt.Fprintf(o.out, "  Name        %s\n", info.GetName())
 	if p := info.GetPlacement(); p != "" {
 		fmt.Fprintf(o.out, "  Placement   %s\n", p)
@@ -322,7 +538,7 @@ func cmdSend(ctx context.Context, cfg *config.Config, o *options, args []string)
 		}
 	}
 
-	c, name, err := connect(ctx, cfg, o)
+	c, frame, err := connect(ctx, cfg, o)
 	if err != nil {
 		return err
 	}
@@ -338,13 +554,13 @@ func cmdSend(ctx context.Context, cfg *config.Config, o *options, args []string)
 		if err != nil {
 			return fmt.Errorf("sending %s: %w", path, err)
 		}
-		fmt.Fprintf(o.out, "Sent %s to %s as %d.\n", path, name, id)
+		fmt.Fprintf(o.out, "Sent %s to %s as %d.\n", path, frame, id)
 	}
 	return nil
 }
 
 func cmdList(ctx context.Context, cfg *config.Config, o *options) error {
-	c, name, err := connect(ctx, cfg, o)
+	c, frame, err := connect(ctx, cfg, o)
 	if err != nil {
 		return err
 	}
@@ -355,10 +571,10 @@ func cmdList(ctx context.Context, cfg *config.Config, o *options) error {
 		return err
 	}
 	if len(items) == 0 {
-		fmt.Fprintf(o.out, "%s holds no photos.\n", name)
+		fmt.Fprintf(o.out, "%s holds no photos.\n", frame)
 		return nil
 	}
-	fmt.Fprintf(o.out, "%s holds %d item(s).\n", name, len(items))
+	fmt.Fprintf(o.out, "%s holds %d item(s).\n", frame, len(items))
 	for _, m := range items {
 		when := time.UnixMilli(m.GetCaptureDate()).UTC().Format("2006-01-02")
 		shown := "hidden"
@@ -393,7 +609,7 @@ func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) 
 		return err
 	}
 
-	c, name, err := connect(ctx, cfg, o)
+	c, frame, err := connect(ctx, cfg, o)
 	if err != nil {
 		return err
 	}
@@ -408,7 +624,7 @@ func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) 
 			ids = append(ids, m.GetMediaId())
 		}
 		if len(ids) == 0 {
-			fmt.Fprintf(o.out, "%s holds no photos.\n", name)
+			fmt.Fprintf(o.out, "%s holds no photos.\n", frame)
 			return nil
 		}
 	}
@@ -437,7 +653,7 @@ func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) 
 			failed++
 			continue
 		}
-		fmt.Fprintf(o.out, "Saved %s from %s, %d bytes.\n", path, name, len(d.Data))
+		fmt.Fprintf(o.out, "Saved %s from %s, %d bytes.\n", path, frame, len(d.Data))
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d of %d photo(s) could not be fetched", failed, len(ids))
@@ -536,7 +752,7 @@ func cmdSetVisible(ctx context.Context, cfg *config.Config, o *options, args []s
 		return err
 	}
 
-	c, name, err := connect(ctx, cfg, o)
+	c, frame, err := connect(ctx, cfg, o)
 	if err != nil {
 		return err
 	}
@@ -549,7 +765,7 @@ func cmdSetVisible(ctx context.Context, cfg *config.Config, o *options, args []s
 	if visible {
 		shown = "Showed"
 	}
-	fmt.Fprintf(o.out, "%s %d item(s) on %s.\n", shown, len(ids), name)
+	fmt.Fprintf(o.out, "%s %d item(s) on %s.\n", shown, len(ids), frame)
 	return nil
 }
 
@@ -574,7 +790,7 @@ func cmdDelete(ctx context.Context, cfg *config.Config, o *options, args []strin
 		return err
 	}
 
-	c, name, err := connect(ctx, cfg, o)
+	c, frame, err := connect(ctx, cfg, o)
 	if err != nil {
 		return err
 	}
@@ -583,7 +799,7 @@ func cmdDelete(ctx context.Context, cfg *config.Config, o *options, args []strin
 	if err := c.DeleteMedia(ctx, ids); err != nil {
 		return err
 	}
-	fmt.Fprintf(o.out, "Removed %d item(s) from %s.\n", len(ids), name)
+	fmt.Fprintf(o.out, "Removed %d item(s) from %s.\n", len(ids), frame)
 	return nil
 }
 
@@ -637,7 +853,7 @@ func cmdRaw(ctx context.Context, cfg *config.Config, o *options, args []string) 
 		return fmt.Errorf("%q is not a message number", args[0])
 	}
 
-	c, name, err := connect(ctx, cfg, o)
+	c, frame, err := connect(ctx, cfg, o)
 	if err != nil {
 		return err
 	}
@@ -646,7 +862,7 @@ func cmdRaw(ctx context.Context, cfg *config.Config, o *options, args []string) 
 	if err := c.SendRaw(ctx, int32(n), nil); err != nil {
 		return err
 	}
-	fmt.Fprintf(o.out, "Sent message %d to %s. Listening for replies until the timeout.\n", n, name)
+	fmt.Fprintf(o.out, "Sent message %d to %s. Listening for replies until the timeout.\n", n, frame)
 	for {
 		select {
 		case f, ok := <-c.Frames():
