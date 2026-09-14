@@ -28,7 +28,7 @@ Usage:
 Commands:
   pair <code>        pair with the frame showing this code
   info               describe the frame
-  send <file>...     send photos
+  send <file|url>... send photos, from disk or from the web
   list               list the photos on the frame
   get <id>... | all  copy photos off the frame into files
   hide <id>...       hide photos without removing them
@@ -51,6 +51,11 @@ Options:
   -config <path>     configuration file (default: under the user config dir)
   -server <host:port>  use this grid server instead of Frameo's
   -v                 log the protocol exchange
+
+send takes an http or https URL wherever it takes a path. Every photo is
+fetched before the frame is connected to, so a link that does not answer
+costs nothing, and the format is read off the photo itself, falling back to
+what the server called it and then to the URL's own extension.
 
 get writes each photo as <date>_<time>_<id>.<extension> in the current
 directory unless -out says otherwise, so a directory of them sorts into the
@@ -312,14 +317,15 @@ func cmdInfo(ctx context.Context, cfg *config.Config, o *options) error {
 
 func cmdSend(ctx context.Context, cfg *config.Config, o *options, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: frameo send <file>...")
+		return errors.New("usage: frameo send <file|url>...")
 	}
-	// Fail before connecting if a file is unreadable, rather than part way
-	// through a batch.
-	for _, path := range args {
-		if _, err := os.Stat(path); err != nil {
-			return err
-		}
+	// Every argument becomes a readable file before anything is connected to,
+	// so an unreadable file or a URL that does not answer is reported without
+	// a round trip rather than part way through a batch.
+	sources, cleanup, err := resolveSources(ctx, args)
+	defer cleanup()
+	if err != nil {
+		return err
 	}
 
 	c, name, err := connect(ctx, cfg, o)
@@ -328,17 +334,19 @@ func cmdSend(ctx context.Context, cfg *config.Config, o *options, args []string)
 	}
 	defer c.Close()
 
-	for _, path := range args {
+	for _, s := range sources {
 		id, err := c.SendPhoto(ctx, frameo.Photo{
-			Path:          path,
+			Path:          s.path,
+			Extension:     s.extension,
+			Taken:         s.taken,
 			Caption:       o.caption,
 			Fit:           o.fit,
 			SingleSegment: o.singleSegment,
 		})
 		if err != nil {
-			return fmt.Errorf("sending %s: %w", path, err)
+			return fmt.Errorf("sending %s: %w", s.name, err)
 		}
-		fmt.Fprintf(o.out, "Sent %s to %s as %d.\n", path, name, id)
+		fmt.Fprintf(o.out, "Sent %s to %s as %d.\n", s.name, name, id)
 	}
 	return nil
 }

@@ -220,6 +220,39 @@ func TestSendPhotoMetadata(t *testing.T) {
 	}
 }
 
+// A photo that did not come off the disk under its own name has to be able to
+// say what format it is in, rather than the caller having to spell it into the
+// name of whatever file it was written to.
+func TestSendPhotoFileExtension(t *testing.T) {
+	dir := t.TempDir()
+	for _, c := range []struct{ file, stated, want string }{
+		// Nothing stated, so the name answers, and answers jpg when it cannot.
+		{"photo.jpg", "", "jpg"},
+		{"photo.png", "", "png"},
+		{"photo", "", "jpg"},
+		// Stated, and it wins: the file may be a temporary one named for
+		// nothing in particular.
+		{"photo.jpg", "png", "png"},
+		{"photo-12345", "webp", "webp"},
+		// Put in the form the frame files photos under either way.
+		{"photo.JPEG", "", "jpg"},
+		{"photo", ".JPEG", "jpg"},
+	} {
+		frame := frameotest.New()
+		client := setup(t, frame)
+		path := filepath.Join(dir, c.file)
+		if err := os.WriteFile(path, photoBytes(500), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.SendPhoto(testCtx(t), frameo.Photo{Path: path, Extension: c.stated}); err != nil {
+			t.Fatal(err)
+		}
+		if got := frame.Photos()[0].Media.GetFileExtension(); got != c.want {
+			t.Errorf("%s stated as %q was filed as %q, want %q", c.file, c.stated, got, c.want)
+		}
+	}
+}
+
 func TestSendPhotoDefaultsCaptureDateToFileTime(t *testing.T) {
 	frame := frameotest.New()
 	c := setup(t, frame)

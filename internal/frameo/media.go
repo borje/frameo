@@ -18,6 +18,11 @@ import (
 type Photo struct {
 	// Path is the file to read.
 	Path string
+	// Extension is the format the frame files the photo under, without a dot.
+	// Empty means the extension of Path, which is how a file on disk says what
+	// it is; a photo that reached this program by some other route has to say
+	// so here rather than through the name of whatever it was written to.
+	Extension string
 	// Caption is shown with the photo on the frame. Optional.
 	Caption string
 	// Taken is the capture date the frame files the photo under. Zero means
@@ -78,7 +83,7 @@ func (c *Client) SendPhoto(ctx context.Context, p Photo) (int64, error) {
 		Id:            id,
 		ContentId:     id,
 		Size:          int32(len(data)),
-		FileExtension: fileExtension(p.Path),
+		FileExtension: fileExtension(p.Path, p.Extension),
 		Type:          pb.Media_PICTURE,
 		ScaleType:     scale,
 		CenterPointX:  cx,
@@ -160,8 +165,12 @@ func segmentCount(n int, single bool) int {
 	return (n + segmentSize - 1) / segmentSize
 }
 
-// fileExtension returns the extension the frame should store the file under.
-func fileExtension(path string) string {
+// fileExtension returns the extension the frame should store the file under:
+// what the caller stated, failing that what the path says, failing that jpg.
+func fileExtension(path, stated string) string {
+	if ext := normalExtension(stated); ext != "" {
+		return ext
+	}
 	if ext := normalExtension(filepath.Ext(path)); ext != "" {
 		return ext
 	}
