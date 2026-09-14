@@ -29,6 +29,19 @@ var FrameoServers = []Endpoint{
 	{Host: "198.199.110.111", Port: 443},
 }
 
+// Other regional grid servers, found by following the naming pattern and
+// confirmed to present the key below. Round trips measured from Sweden:
+//
+//	sdgframeolon01.frameo.net    32 ms
+//	sdgframeonyc01/02.frameo.net    104 ms
+//	sdgframeosfo01/02.frameo.net    168 ms
+//	sdgframeosgp01/02.frameo.net    187 ms
+//
+// FrameoServers deliberately still lists only the San Francisco pair, because
+// choosing between regions is a change to how Dial picks a server rather than
+// a longer list: adding these without that would make the choice random and
+// leave most connections slower than they need to be.
+
 // FrameoServerKey is the long-term public key of the Frameo grid servers. The
 // app ships this value as the one server certificate it will accept, and a
 // live connection confirms the grid presents exactly it. Pinning it means a
