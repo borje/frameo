@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/borje/frameo/internal/sdg"
-	"github.com/borje/frameo/internal/sdg/sdgtest"
+	"github.com/borje/unframeo/internal/sdg"
+	"github.com/borje/unframeo/internal/sdg/sdgtest"
 )
 
 func TestPair(t *testing.T) {

@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/borje/frameo/internal/mdns"
+	"github.com/borje/unframeo/internal/mdns"
 )
 
 func TestLiveBrowse(t *testing.T) {

@@ -8,7 +8,7 @@
 //
 //	go test -tags live ./internal/frameo -run TestLiveLocal -v
 //
-// Set FRAMEO_FRAME to choose between several paired frames.
+// Set UNFRAMEO_FRAME to choose between several paired frames.
 package frameo_test
 
 import (
@@ -19,10 +19,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/borje/frameo/internal/config"
-	"github.com/borje/frameo/internal/frameo"
-	"github.com/borje/frameo/internal/mdns"
-	"github.com/borje/frameo/internal/sdg"
+	"github.com/borje/unframeo/internal/config"
+	"github.com/borje/unframeo/internal/frameo"
+	"github.com/borje/unframeo/internal/mdns"
+	"github.com/borje/unframeo/internal/sdg"
 )
 
 // findLocal discovers the paired frame on this network.
@@ -36,7 +36,7 @@ func findLocal(t *testing.T) (sdg.Endpoint, sdg.PeerID, *sdg.Identity, *slog.Log
 	if err != nil {
 		t.Fatalf("reading the configuration: %v", err)
 	}
-	name, peer, err := cfg.Resolve(os.Getenv("FRAMEO_FRAME"))
+	name, peer, err := cfg.Resolve(os.Getenv("UNFRAMEO_FRAME"))
 	if err != nil {
 		t.Skipf("no frame to test against: %v", err)
 	}

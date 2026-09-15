@@ -122,7 +122,7 @@ const (
 // still refused for lack of view/manage permission. That permission has since
 // been granted on the frame, so their error-code-5 results say nothing about
 // those numbers any more and 24 and 26 are both worth re-probing. 23 no longer
-// needs a probe so much as a use: `frameo get <id>` sends a real GetMedia with
+// needs a probe so much as a use: `unframeo get <id>` sends a real GetMedia with
 // a real media id, which is the experiment that comment used to ask for.
 //
 // Probing for MediaUpdate's number is dangerous in a way the others are not,
@@ -145,7 +145,7 @@ const (
 // and the unpacked encoding, so those exact bytes are also a valid
 // DeleteMedia{mediaIds: [that id]}. Checked rather than reasoned: GetMedia{111}
 // serialises to 08de01, and that decodes back as DeleteMedia{mediaIds: [111]}.
-// `frameo -type 34 get <id>` therefore deletes the photo it was asked to fetch,
+// `unframeo -type 34 get <id>` therefore deletes the photo it was asked to fetch,
 // and reads as an ordinary deletion at the other end.
 //
 // So there is no payload that is safe to aim at an unknown number. The only

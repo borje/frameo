@@ -10,7 +10,7 @@ syntax = "proto3";
 // Verify against a live frame before trusting delete/visibility.
 
 package frameo;
-option go_package = "github.com/borje/frameo/internal/frameo/pb";
+option go_package = "github.com/borje/unframeo/internal/frameo/pb";
 
 import "frameo.proto";
 

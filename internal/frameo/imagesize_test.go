@@ -7,7 +7,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"github.com/borje/frameo/internal/frameo/frameotest"
+	"github.com/borje/unframeo/internal/frameo/frameotest"
 )
 
 // TestImageSizeReadsEveryShapeAFrameSends covers each form a photo has been

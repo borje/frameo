@@ -14,7 +14,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/borje/frameo/internal/sdg"
+	"github.com/borje/unframeo/internal/sdg"
 )
 
 // Config is the on-disk state. The private key is the client's identity: a
@@ -34,17 +34,17 @@ type Frame struct {
 	PairedAt time.Time `json:"paired_at,omitempty"`
 }
 
-// DefaultPath is where the configuration lives, honouring the FRAMEO_CONFIG
+// DefaultPath is where the configuration lives, honouring the UNFRAMEO_CONFIG
 // override.
 func DefaultPath() (string, error) {
-	if p := os.Getenv("FRAMEO_CONFIG"); p != "" {
+	if p := os.Getenv("UNFRAMEO_CONFIG"); p != "" {
 		return p, nil
 	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("config: cannot locate a configuration directory: %w", err)
 	}
-	return filepath.Join(dir, "frameo", "config.json"), nil
+	return filepath.Join(dir, "unframeo", "config.json"), nil
 }
 
 // Missing reports that there is no configuration at Path. Orphaned
@@ -65,7 +65,7 @@ func (m *Missing) Error() string {
 			"held was this client's identity and cannot be recreated: restore the file "+
 			"from a backup if you have one, or pair again at the frame", m.Path)
 	}
-	return fmt.Sprintf("config: no configuration at %s; run \"frameo pair <code>\" to create one", m.Path)
+	return fmt.Sprintf("config: no configuration at %s; run \"unframeo pair <code>\" to create one", m.Path)
 }
 
 // Is reports a Missing as os.ErrNotExist, so callers can test for it either way.
@@ -75,9 +75,9 @@ func (m *Missing) Is(target error) bool { return target == os.ErrNotExist }
 // first run from a configuration that has been lost.
 //
 // The directory is evidence only where it is ours. Save is the only thing that
-// creates the frameo directory under the user config dir, so finding it without
+// creates the unframeo directory under the user config dir, so finding it without
 // a file in it means one was written and removed. A path given with -config or
-// FRAMEO_CONFIG sits in a directory that exists for its own reasons, and says
+// UNFRAMEO_CONFIG sits in a directory that exists for its own reasons, and says
 // nothing either way.
 func missingAt(path string) *Missing {
 	m := &Missing{Path: path}
@@ -97,7 +97,7 @@ func ownedDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "frameo"), nil
+	return filepath.Join(dir, "unframeo"), nil
 }
 
 // resolve fills in the default path when none was given.
@@ -140,7 +140,7 @@ func Unsaved(path string) *Config {
 // Load reads the configuration. It never creates one: a missing file is
 // reported as *Missing, because minting a new identity is not a side effect
 // any command but pairing should have. A path that is merely wrong -- a
-// mistyped -config, a FRAMEO_CONFIG set in one shell and not another, a
+// mistyped -config, a UNFRAMEO_CONFIG set in one shell and not another, a
 // different user, a container without the volume -- then says so, instead of
 // quietly becoming a second client that no frame has ever heard of.
 func Load(path string) (*Config, error) {
@@ -260,7 +260,7 @@ func (c *Config) Resolve(name string) (string, sdg.PeerID, error) {
 	}
 	if name == "" {
 		if len(c.Frames) == 0 {
-			return "", zero, errors.New("no frame is paired yet: run \"frameo pair\" with the code the frame is showing")
+			return "", zero, errors.New("no frame is paired yet: run \"unframeo pair\" with the code the frame is showing")
 		}
 		return "", zero, fmt.Errorf("no default frame is set: name one of %v", c.Names())
 	}

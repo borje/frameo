@@ -1,4 +1,4 @@
-# frameo
+# unframeo
 
 A standalone client that sends photos to a Frameo digital photo frame.
 
@@ -7,8 +7,8 @@ peer-to-peer over Trifork's SecureDeviceGrid, an encrypted relay network, with
 Frameo's own message protocol on top. This program implements both, so a frame
 can be fed from a script or a server instead of from the phone app.
 
-    frameo pair 12345678      # once, with the code the frame is showing
-    frameo send photo.jpg     # thereafter, from anywhere
+    unframeo pair 12345678      # once, with the code the frame is showing
+    unframeo send photo.jpg     # thereafter, from anywhere
 
 ## Commands
 
@@ -69,8 +69,8 @@ measured off the photo itself -- the frame states them nowhere.
 
 ## The configuration file
 
-One file, `frameo/config.json` under the user config directory --
-`$XDG_CONFIG_HOME` or `~/.config` on Linux -- or wherever `$FRAMEO_CONFIG` or
+One file, `unframeo/config.json` under the user config directory --
+`$XDG_CONFIG_HOME` or `~/.config` on Linux -- or wherever `$UNFRAMEO_CONFIG` or
 `-config` points instead. It is written for its owner alone, through a
 temporary file so an interrupted write cannot leave an unusable identity
 behind.
@@ -88,7 +88,7 @@ the frame is concerned, and can send and delete photos with it.
 
 Only `pair` creates the file, and it says so when it does. Every other command
 stops and names the path it looked at, because a configuration that is not
-there is as often a path this particular run did not have -- `FRAMEO_CONFIG`
+there is as often a path this particular run did not have -- `UNFRAMEO_CONFIG`
 unset in a cron job, a mistyped `-config`, a different user, a container
 without the volume -- as a file that is really gone, and re-pairing is the
 wrong answer to a wrong path. Where the directory is ours and empty, a
@@ -105,7 +105,7 @@ message says that instead.
 - `internal/mdns` finds frames on the local network, by browsing for the
   DNS-SD service they advertise.
 - `internal/frameo` speaks the Frameo message protocol that rides on top.
-- `cmd/frameo` is the command line.
+- `cmd/unframeo` is the command line.
 
 ## Status and provenance
 
@@ -144,11 +144,11 @@ legal advice. It is a note about what the code is made of.
 
 ## Building
 
-    go build ./cmd/frameo
+    go build ./cmd/unframeo
 
 or, without a clone,
 
-    go install github.com/borje/frameo/cmd/frameo@latest
+    go install github.com/borje/unframeo/cmd/unframeo@latest
 
 Regenerating the protobuf bindings additionally needs `protoc` and
 `protoc-gen-go`, but the generated files are checked in, so an ordinary build
@@ -172,7 +172,7 @@ ordinary run cannot start pairing or reach the network:
 
 They use the configuration this client already has, so they need a frame paired
 first and powered on; with nothing paired they skip rather than fail. Set
-`FRAMEO_FRAME` to choose between several paired frames, and `FRAMEO_PHOTO` to a
+`UNFRAMEO_FRAME` to choose between several paired frames, and `UNFRAMEO_PHOTO` to a
 file to run the tests that actually send one -- they skip without it, since a
 test that sends leaves a photo on a real frame. The `internal/sdg` and
 `internal/mdns` live tests reach Frameo's own grid servers and the local

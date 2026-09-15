@@ -869,7 +869,7 @@ const file_control_proto_rawDesc = "" +
 	"\n" +
 	"PairRemote\x12\x0e\n" +
 	"\x02id\x18\x01 \x02(\rR\x02id\x12\x10\n" +
-	"\x03otp\x18\x02 \x02(\tR\x03otpB.Z,github.com/borje/frameo/internal/sdg/control"
+	"\x03otp\x18\x02 \x02(\tR\x03otpB0Z.github.com/borje/unframeo/internal/sdg/control"
 
 var (
 	file_control_proto_rawDescOnce sync.Once

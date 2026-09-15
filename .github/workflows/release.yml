@@ -1,4 +1,4 @@
-# Builds frameo for each platform and attaches the binaries to a GitHub
+# Builds unframeo for each platform and attaches the binaries to a GitHub
 # release. Triggered by pushing a version tag:
 #
 #	git tag v0.1.0 && git push origin v0.1.0
@@ -41,10 +41,10 @@ jobs:
         for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
           GOOS=${target%/*} GOARCH=${target#*/}
           export GOOS GOARCH
-          name="frameo_${GITHUB_REF_NAME}_${GOOS}_${GOARCH}"
-          bin=frameo
-          [ "$GOOS" = windows ] && bin=frameo.exe
-          go build -trimpath -ldflags=-s -o "dist/$bin" ./cmd/frameo
+          name="unframeo_${GITHUB_REF_NAME}_${GOOS}_${GOARCH}"
+          bin=unframeo
+          [ "$GOOS" = windows ] && bin=unframeo.exe
+          go build -trimpath -ldflags=-s -o "dist/$bin" ./cmd/unframeo
           if [ "$GOOS" = windows ]; then
             (cd dist && zip -q "$name.zip" "$bin")
           else

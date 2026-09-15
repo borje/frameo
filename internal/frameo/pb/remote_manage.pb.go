@@ -380,7 +380,7 @@ const file_remote_manage_proto_rawDesc = "" +
 	"\x12MediaMetaData_Type\x12\x1e\n" +
 	"\x1aMEDIAMETADATA_TYPE_PICTURE\x10\x00\x12\x1c\n" +
 	"\x18MEDIAMETADATA_TYPE_VIDEO\x10\x01\x12\x1f\n" +
-	"\x1bMEDIAMETADATA_TYPE_GREETING\x10\x02B,Z*github.com/borje/frameo/internal/frameo/pbb\x06proto3"
+	"\x1bMEDIAMETADATA_TYPE_GREETING\x10\x02B.Z,github.com/borje/unframeo/internal/frameo/pbb\x06proto3"
 
 var (
 	file_remote_manage_proto_rawDescOnce sync.Once

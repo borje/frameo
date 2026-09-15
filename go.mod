@@ -1,4 +1,4 @@
-module github.com/borje/frameo
+module github.com/borje/unframeo
 
 go 1.26.0
 

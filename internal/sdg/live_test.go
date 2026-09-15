@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/borje/frameo/internal/sdg"
+	"github.com/borje/unframeo/internal/sdg"
 )
 
 func liveOptions(t *testing.T) *sdg.Options {

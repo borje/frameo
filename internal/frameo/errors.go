@@ -5,7 +5,7 @@ package frameo
 import (
 	"fmt"
 
-	"github.com/borje/frameo/internal/frameo/pb"
+	"github.com/borje/unframeo/internal/frameo/pb"
 )
 
 // FrameError is a refusal the frame itself reported, as distinct from a failure

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/borje/frameo/internal/config"
-	"github.com/borje/frameo/internal/sdg"
+	"github.com/borje/unframeo/internal/config"
+	"github.com/borje/unframeo/internal/sdg"
 )
 
 func tempPath(t *testing.T) string {
@@ -109,7 +109,7 @@ func TestResolveWithNothingPaired(t *testing.T) {
 		t.Fatal("want an error when nothing is paired")
 	}
 	// The message has to tell someone what to do next.
-	if want := "frameo pair"; !contains(err.Error(), want) {
+	if want := "unframeo pair"; !contains(err.Error(), want) {
 		t.Errorf("error %q does not mention %q", err, want)
 	}
 }
@@ -198,12 +198,12 @@ func TestLoadRejectsCorruptFile(t *testing.T) {
 }
 
 func TestDefaultPathHonoursOverride(t *testing.T) {
-	t.Setenv("FRAMEO_CONFIG", "/tmp/somewhere/frameo.json")
+	t.Setenv("UNFRAMEO_CONFIG", "/tmp/somewhere/unframeo.json")
 	got, err := config.DefaultPath()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "/tmp/somewhere/frameo.json" {
+	if got != "/tmp/somewhere/unframeo.json" {
 		t.Errorf("DefaultPath() = %q", got)
 	}
 }
@@ -272,7 +272,7 @@ func TestRenamingAFrameDropsTheOldEntry(t *testing.T) {
 // different answers: a first run wants an identity created, a lost one wants
 // its file back, because the key it held cannot be recreated.
 func TestMissingTellsAFirstRunFromALostConfiguration(t *testing.T) {
-	t.Setenv("FRAMEO_CONFIG", "")
+	t.Setenv("UNFRAMEO_CONFIG", "")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	path, err := config.DefaultPath()
 	if err != nil {

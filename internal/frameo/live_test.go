@@ -4,11 +4,11 @@
 
 // These tests talk to a real frame. They need a pairing first:
 //
-//	frameo pair <the code on the frame>
+//	unframeo pair <the code on the frame>
 //	go test -tags live ./internal/frameo -run TestLiveFrame -v
 //
-// The frame is taken from the stored configuration. Set FRAMEO_FRAME to choose
-// one when several are paired, and FRAMEO_PHOTO to a file to run the transfer
+// The frame is taken from the stored configuration. Set UNFRAMEO_FRAME to choose
+// one when several are paired, and UNFRAMEO_PHOTO to a file to run the transfer
 // test, which puts a real photo on the frame.
 package frameo_test
 
@@ -23,9 +23,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/borje/frameo/internal/config"
-	"github.com/borje/frameo/internal/frameo"
-	"github.com/borje/frameo/internal/sdg"
+	"github.com/borje/unframeo/internal/config"
+	"github.com/borje/unframeo/internal/frameo"
+	"github.com/borje/unframeo/internal/sdg"
 )
 
 // connectLive opens a conversation with the paired frame.
@@ -39,7 +39,7 @@ func connectLive(t *testing.T) *frameo.Client {
 	if err != nil {
 		t.Fatalf("reading the configuration: %v", err)
 	}
-	name, peer, err := cfg.Resolve(os.Getenv("FRAMEO_FRAME"))
+	name, peer, err := cfg.Resolve(os.Getenv("UNFRAMEO_FRAME"))
 	if err != nil {
 		t.Skipf("no frame to test against: %v", err)
 	}
@@ -96,9 +96,9 @@ func TestLiveFrameInfo(t *testing.T) {
 }
 
 func TestLiveSendPhoto(t *testing.T) {
-	path := os.Getenv("FRAMEO_PHOTO")
+	path := os.Getenv("UNFRAMEO_PHOTO")
 	if path == "" {
-		t.Skip("set FRAMEO_PHOTO to a file to send it to the frame")
+		t.Skip("set UNFRAMEO_PHOTO to a file to send it to the frame")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -110,7 +110,7 @@ func TestLiveSendPhoto(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	id, err := c.SendPhoto(ctx, frameo.Photo{Path: path, Caption: "sent by frameo"})
+	id, err := c.SendPhoto(ctx, frameo.Photo{Path: path, Caption: "sent by unframeo"})
 	if err != nil {
 		t.Fatalf("SendPhoto: %v", err)
 	}
@@ -122,9 +122,9 @@ func TestLiveSendPhoto(t *testing.T) {
 // segmented form turns out not to work against a real frame, this is the other
 // shape to try.
 func TestLiveSendPhotoSingleSegment(t *testing.T) {
-	path := os.Getenv("FRAMEO_PHOTO")
+	path := os.Getenv("UNFRAMEO_PHOTO")
 	if path == "" {
-		t.Skip("set FRAMEO_PHOTO to a file to send it to the frame")
+		t.Skip("set UNFRAMEO_PHOTO to a file to send it to the frame")
 	}
 	c := connectLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -140,7 +140,7 @@ func TestLiveSendPhotoSingleSegment(t *testing.T) {
 // TestLiveListMedia asks the real frame for its media listing. The message
 // number (31) is confirmed: the frame recognises the request and answers with
 // a genuine AllMediaMetaData reply. Whether that reply carries a usable
-// listing depends on this pairing's permissions (see `frameo info`), which is
+// listing depends on this pairing's permissions (see `unframeo info`), which is
 // why a refusal only logs and skips rather than failing outright.
 func TestLiveListMedia(t *testing.T) {
 	c := connectLive(t)
@@ -166,9 +166,9 @@ func TestLiveListMedia(t *testing.T) {
 // TestLiveRoundTrip sends a photo and then looks for it in a listing, which is
 // the check that the two halves agree about identifiers.
 func TestLiveRoundTrip(t *testing.T) {
-	path := os.Getenv("FRAMEO_PHOTO")
+	path := os.Getenv("UNFRAMEO_PHOTO")
 	if path == "" {
-		t.Skip("set FRAMEO_PHOTO to a file to run the round trip")
+		t.Skip("set UNFRAMEO_PHOTO to a file to run the round trip")
 	}
 	c := connectLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -243,7 +243,7 @@ func TestLiveGetMedia(t *testing.T) {
 		t.Errorf("asked for photo %d and the header names %d", id, got.Media.GetId())
 	}
 
-	if dir := os.Getenv("FRAMEO_OUT"); dir != "" {
+	if dir := os.Getenv("UNFRAMEO_OUT"); dir != "" {
 		path := filepath.Join(dir, fmt.Sprintf("%d.%s", id, got.Extension()))
 		if err := os.WriteFile(path, got.Data, 0o644); err != nil {
 			t.Fatal(err)
@@ -355,9 +355,9 @@ func TestLiveGetMediaCutoff(t *testing.T) {
 // the check that the two directions agree: the same id, and the same bytes if
 // the frame stores what it is given rather than re-encoding it.
 func TestLiveGetMediaRoundTrip(t *testing.T) {
-	path := os.Getenv("FRAMEO_PHOTO")
+	path := os.Getenv("UNFRAMEO_PHOTO")
 	if path == "" {
-		t.Skip("set FRAMEO_PHOTO to a file to run the round trip")
+		t.Skip("set UNFRAMEO_PHOTO to a file to run the round trip")
 	}
 	sent, err := os.ReadFile(path)
 	if err != nil {

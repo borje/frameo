@@ -8,7 +8,7 @@ syntax = "proto3";
 // int64 or decoding breaks. Verified against the decompiled info strings.
 
 package frameo;
-option go_package = "github.com/borje/frameo/internal/frameo/pb";
+option go_package = "github.com/borje/unframeo/internal/frameo/pb";
 
 // ======================================================================
 // Media transfer (the photo-send path)   -- from PBMediaTransfer

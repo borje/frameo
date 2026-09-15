@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/borje/frameo/internal/frameo"
-	"github.com/borje/frameo/internal/frameo/frameotest"
-	"github.com/borje/frameo/internal/frameo/pb"
-	"github.com/borje/frameo/internal/sdg"
-	"github.com/borje/frameo/internal/sdg/sdgtest"
+	"github.com/borje/unframeo/internal/frameo"
+	"github.com/borje/unframeo/internal/frameo/frameotest"
+	"github.com/borje/unframeo/internal/frameo/pb"
+	"github.com/borje/unframeo/internal/sdg"
+	"github.com/borje/unframeo/internal/sdg/sdgtest"
 	"google.golang.org/protobuf/proto"
 )
 

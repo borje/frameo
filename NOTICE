@@ -1,4 +1,4 @@
-frameo -- a standalone client for Frameo digital photo frames
+unframeo -- a standalone client for Frameo digital photo frames
 Copyright (C) 2026 Borje Granberg
 
 This program is free software: you can redistribute it and/or modify it
@@ -50,5 +50,6 @@ Trademarks
 
 Frameo is a product of Frameo ApS. This project is not affiliated with,
 authorised by, or endorsed by Frameo ApS or by Trifork, who own the
-SecureDeviceGrid network. The name is used only to say which frames the
-program talks to.
+SecureDeviceGrid network. The name "unframeo" echoes that trademark only to
+say which frames this program talks to; no right in the mark is claimed, and
+nothing here is an official Frameo client.

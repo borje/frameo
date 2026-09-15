@@ -84,7 +84,7 @@ func resolveSources(ctx context.Context, args []string) ([]source, func(), error
 		}
 		if dir == "" {
 			var err error
-			if dir, err = os.MkdirTemp("", "frameo-"); err != nil {
+			if dir, err = os.MkdirTemp("", "unframeo-"); err != nil {
 				return nil, cleanup, err
 			}
 		}
@@ -170,7 +170,7 @@ func download(ctx context.Context, u *url.URL, dir string, budget int64) (source
 	}
 	// Named, so that a server which turns away an unidentified client can see
 	// what this is rather than only that it is not a browser.
-	req.Header.Set("User-Agent", "frameo")
+	req.Header.Set("User-Agent", "unframeo")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

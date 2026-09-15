@@ -14,11 +14,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/borje/frameo/internal/config"
-	"github.com/borje/frameo/internal/frameo"
-	"github.com/borje/frameo/internal/frameo/frameotest"
-	"github.com/borje/frameo/internal/frameo/pb"
-	"github.com/borje/frameo/internal/sdg/sdgtest"
+	"github.com/borje/unframeo/internal/config"
+	"github.com/borje/unframeo/internal/frameo"
+	"github.com/borje/unframeo/internal/frameo/frameotest"
+	"github.com/borje/unframeo/internal/frameo/pb"
+	"github.com/borje/unframeo/internal/sdg/sdgtest"
 )
 
 // runCLI drives the command line exactly as main does, and returns what it
@@ -46,7 +46,7 @@ func withConfig(t *testing.T) string {
 func withNoConfig(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.json")
-	t.Setenv("FRAMEO_CONFIG", path)
+	t.Setenv("UNFRAMEO_CONFIG", path)
 	return path
 }
 
@@ -98,7 +98,7 @@ func TestWhoamiReportsTheIdentity(t *testing.T) {
 }
 
 // A missing configuration is a wrong path as often as it is a lost one -- a
-// mistyped -config, a FRAMEO_CONFIG that a cron job does not have -- and the
+// mistyped -config, a UNFRAMEO_CONFIG that a cron job does not have -- and the
 // answer to a wrong path is not to become a client no frame has heard of.
 func TestOnlyPairCreatesAnIdentity(t *testing.T) {
 	for _, args := range [][]string{{"whoami"}, {"list"}, {"info"}, {"send", "x.jpg"}, {"frames"}} {

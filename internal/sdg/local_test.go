@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/borje/frameo/internal/sdg"
-	"github.com/borje/frameo/internal/sdg/sdgtest"
+	"github.com/borje/unframeo/internal/sdg"
+	"github.com/borje/unframeo/internal/sdg/sdgtest"
 )
 
 // testIdentity is a fresh client identity for one test.

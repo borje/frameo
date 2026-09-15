@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/borje/frameo/internal/frameo/frameotest"
+	"github.com/borje/unframeo/internal/frameo/frameotest"
 )
 
 // photoServer serves one photo. What it says the photo is, and what it hands

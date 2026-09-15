@@ -8,7 +8,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"github.com/borje/frameo/internal/frameo/pb"
+	"github.com/borje/unframeo/internal/frameo/pb"
 	"google.golang.org/protobuf/proto"
 )
 

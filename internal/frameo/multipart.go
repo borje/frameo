@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/borje/frameo/internal/frameo/pb"
+	"github.com/borje/unframeo/internal/frameo/pb"
 	"google.golang.org/protobuf/proto"
 )
 

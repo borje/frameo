@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Command frameo sends photos to a Frameo digital photo frame.
+// Command unframeo sends photos to a Frameo digital photo frame.
 package main
 
 import (
@@ -17,17 +17,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/borje/frameo/internal/config"
-	"github.com/borje/frameo/internal/frameo"
-	"github.com/borje/frameo/internal/frameo/pb"
-	"github.com/borje/frameo/internal/mdns"
-	"github.com/borje/frameo/internal/sdg"
+	"github.com/borje/unframeo/internal/config"
+	"github.com/borje/unframeo/internal/frameo"
+	"github.com/borje/unframeo/internal/frameo/pb"
+	"github.com/borje/unframeo/internal/mdns"
+	"github.com/borje/unframeo/internal/sdg"
 )
 
-const usage = `frameo sends photos to a Frameo digital photo frame.
+const usage = `unframeo sends photos to a Frameo digital photo frame.
 
 Usage:
-  frameo [options] <command> [arguments]
+  unframeo [options] <command> [arguments]
 
 Commands:
   pair <code>        pair with the frame showing this code
@@ -60,8 +60,8 @@ Options:
   -fit               fit the whole photo on screen instead of cropping to fill
   -single-segment    send each photo as one message instead of a series
   -timeout <dur>     give up after this long, covering the whole run (default 15m)
-  -config <path>     configuration file (default: $FRAMEO_CONFIG, or
-                     frameo/config.json under the user config dir)
+  -config <path>     configuration file (default: $UNFRAMEO_CONFIG, or
+                     unframeo/config.json under the user config dir)
   -server <host:port>  use this grid server instead of Frameo's, which also
                      means the relay unless -net says otherwise
   -v                 log the protocol exchange
@@ -103,7 +103,7 @@ identity: a frame is paired to it, so it cannot be recreated and a frame
 paired to a lost one has to be paired again at the frame itself. Only pair
 creates it. Every other command says where it looked and stops, because a
 configuration that is not there is as often a path this run did not have --
-FRAMEO_CONFIG unset in a cron job, a mistyped -config, another user -- as a
+UNFRAMEO_CONFIG unset in a cron job, a mistyped -config, another user -- as a
 file that is really gone. Back the file up somewhere encrypted: anyone holding
 it can send and delete photos as this client.
 `
@@ -128,14 +128,14 @@ type options struct {
 
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "frameo:", err)
+		fmt.Fprintln(os.Stderr, "unframeo:", err)
 		os.Exit(1)
 	}
 }
 
 func run(args []string, stdout io.Writer) error {
 	o := options{out: stdout}
-	fs := flag.NewFlagSet("frameo", flag.ContinueOnError)
+	fs := flag.NewFlagSet("unframeo", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	fs.StringVar(&o.frame, "frame", "", "which paired frame to use")
@@ -152,7 +152,7 @@ func run(args []string, stdout io.Writer) error {
 	fs.StringVar(&o.server, "server", "", "grid server to use")
 	fs.BoolVar(&o.verbose, "v", false, "log the protocol exchange")
 	if err := fs.Parse(args); err != nil {
-		return errors.New("run \"frameo\" with no arguments for usage")
+		return errors.New("run \"unframeo\" with no arguments for usage")
 	}
 
 	switch o.network {
@@ -239,7 +239,7 @@ func run(args []string, stdout io.Writer) error {
 // Only pair creates an identity, because only pair has a reason to: the key is
 // what the frame is paired to, so minting one is the start of a pairing and
 // not a thing to do on the way to listing photos. Everything else fails
-// instead, which is what turns a mistyped -config or an unset FRAMEO_CONFIG
+// instead, which is what turns a mistyped -config or an unset UNFRAMEO_CONFIG
 // into a message about the path rather than a client the frame does not know.
 // discover needs no identity at all -- it browses the network and pairs with
 // nothing -- so it runs on a configuration that is never written.
@@ -257,11 +257,11 @@ func loadConfig(cmdName, path string) (*config.Config, error) {
 			return nil, err
 		}
 		if was.Orphaned {
-			fmt.Fprintf(os.Stderr, "frameo: created a new identity at %s, replacing the one "+
+			fmt.Fprintf(os.Stderr, "unframeo: created a new identity at %s, replacing the one "+
 				"that was there before: any frame paired with the old identity no longer "+
 				"knows this client and has to be paired again.\n", cfg.Path())
 		} else {
-			fmt.Fprintf(os.Stderr, "frameo: created a new identity at %s\n", cfg.Path())
+			fmt.Fprintf(os.Stderr, "unframeo: created a new identity at %s\n", cfg.Path())
 		}
 		return cfg, nil
 	case "discover":
@@ -546,7 +546,7 @@ func pairedAs(cfg *config.Config, instance string) string {
 
 func cmdPair(ctx context.Context, cfg *config.Config, o *options, args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: frameo pair <code>")
+		return errors.New("usage: unframeo pair <code>")
 	}
 	g, err := dialGrid(ctx, cfg, o)
 	if err != nil {
@@ -601,7 +601,7 @@ func cmdInfo(ctx context.Context, cfg *config.Config, o *options) error {
 
 func cmdSend(ctx context.Context, cfg *config.Config, o *options, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: frameo send <file|url>...")
+		return errors.New("usage: unframeo send <file|url>...")
 	}
 	// Every argument becomes a readable file before anything is connected to,
 	// so an unreadable file or a URL that does not answer is reported without
@@ -738,7 +738,7 @@ func plural(word string, n int) string {
 // meet. The exit status still says something went wrong.
 func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: frameo get <id>... | frameo get all")
+		return errors.New("usage: unframeo get <id>... | unframeo get all")
 	}
 	all := len(args) == 1 && args[0] == "all"
 	var ids []int64
@@ -784,7 +784,7 @@ func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) 
 			Timeout: o.wait,
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "frameo: photo %d: %v\n", id, err)
+			fmt.Fprintf(os.Stderr, "unframeo: photo %d: %v\n", id, err)
 			failed++
 			continue
 		}
@@ -807,7 +807,7 @@ func cmdGet(ctx context.Context, cfg *config.Config, o *options, args []string) 
 		// fetched, for the same reason: the rest of the batch is still worth
 		// having, and the count at the end says how much was lost.
 		if err := writeWhole(path, d.Data); err != nil {
-			fmt.Fprintf(os.Stderr, "frameo: photo %d: %v\n", id, err)
+			fmt.Fprintf(os.Stderr, "unframeo: photo %d: %v\n", id, err)
 			failed++
 			continue
 		}
@@ -850,7 +850,7 @@ func quantised(size photoSize, d *frameo.Download) bool {
 //
 // The date leads so that a directory of photos sorts into the order they were
 // taken, which is the order anyone looking through them wants. It is in UTC,
-// matching what `frameo list` prints, so one photo reads the same in both
+// matching what `unframeo list` prints, so one photo reads the same in both
 // places. The id stays because it is what every other command takes -- delete,
 // hide and show all name a photo by it -- so a file can be acted on without
 // going back to the listing for its number.
@@ -913,7 +913,7 @@ func getTarget(out string, batch bool) (dir, file string, err error) {
 // interrupted run must not leave a truncated file under a name that looks
 // finished.
 func writeWhole(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".frameo-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".unframeo-*")
 	if err != nil {
 		return err
 	}
@@ -940,7 +940,7 @@ func cmdSetVisible(ctx context.Context, cfg *config.Config, o *options, args []s
 		verb = "show"
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: frameo %s <id>...", verb)
+		return fmt.Errorf("usage: unframeo %s <id>...", verb)
 	}
 	ids, err := parseIDs(args)
 	if err != nil {
@@ -1022,7 +1022,7 @@ func parseIDs(args []string) ([]int64, error) {
 
 func cmdDelete(ctx context.Context, cfg *config.Config, o *options, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: frameo delete <id>...")
+		return errors.New("usage: unframeo delete <id>...")
 	}
 	ids, err := parseIDs(args)
 	if err != nil {
@@ -1061,7 +1061,7 @@ func cmdFrames(cfg *config.Config, o *options) error {
 
 func cmdForget(cfg *config.Config, o *options, args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: frameo forget <name>")
+		return errors.New("usage: unframeo forget <name>")
 	}
 	if err := cfg.RemoveFrame(args[0]); err != nil {
 		return err
@@ -1085,7 +1085,7 @@ func cmdWhoami(cfg *config.Config, o *options) error {
 // see whether the frame answers.
 func cmdRaw(ctx context.Context, cfg *config.Config, o *options, args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: frameo raw <number>")
+		return errors.New("usage: unframeo raw <number>")
 	}
 	n, err := strconv.ParseInt(args[0], 10, 32)
 	if err != nil {

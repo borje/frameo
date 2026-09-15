@@ -12,7 +12,7 @@
 //
 // They run over the local network when the frame answers mDNS and fall back to
 // the relay when it does not, since parallelism matters most over the relay.
-// Set FRAMEO_NET=relay to force the relay.
+// Set UNFRAMEO_NET=relay to force the relay.
 //
 // What they found, against a real frame over the local network:
 //
@@ -59,10 +59,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/borje/frameo/internal/config"
-	"github.com/borje/frameo/internal/frameo"
-	"github.com/borje/frameo/internal/mdns"
-	"github.com/borje/frameo/internal/sdg"
+	"github.com/borje/unframeo/internal/config"
+	"github.com/borje/unframeo/internal/frameo"
+	"github.com/borje/unframeo/internal/mdns"
+	"github.com/borje/unframeo/internal/sdg"
 )
 
 // opener makes one fresh connection to the frame. Each call is a separate
@@ -80,7 +80,7 @@ func connector(t *testing.T) (opener, string, *slog.Logger) {
 	if err != nil {
 		t.Fatalf("reading the configuration: %v", err)
 	}
-	name, peer, err := cfg.Resolve(os.Getenv("FRAMEO_FRAME"))
+	name, peer, err := cfg.Resolve(os.Getenv("UNFRAMEO_FRAME"))
 	if err != nil {
 		t.Skipf("no frame to test against: %v", err)
 	}
@@ -94,7 +94,7 @@ func connector(t *testing.T) (opener, string, *slog.Logger) {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	if os.Getenv("FRAMEO_NET") != "relay" {
+	if os.Getenv("UNFRAMEO_NET") != "relay" {
 		look, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		found, err := mdns.Lookup(look, sdg.LocalService, func(instance string) bool {

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/borje/frameo/internal/sdg/control"
+	"github.com/borje/unframeo/internal/sdg/control"
 	"google.golang.org/protobuf/proto"
 )
 

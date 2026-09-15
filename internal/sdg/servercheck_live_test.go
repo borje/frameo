@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/borje/frameo/internal/sdg"
+	"github.com/borje/unframeo/internal/sdg"
 )
 
 // TestLiveEveryServerIsFrameo dials each configured grid server on its own and
