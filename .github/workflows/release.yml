@@ -1,0 +1,61 @@
+# Builds frameo for each platform and attaches the binaries to a GitHub
+# release. Triggered by pushing a version tag:
+#
+#	git tag v0.1.0 && git push origin v0.1.0
+#
+# Publishing goes through the gh CLI, which is already on the runner, so no
+# action beyond checkout and setup-go is involved.
+
+name: Release
+
+on:
+  push:
+    tags: [ "v*" ]
+
+permissions:
+  contents: write
+
+jobs:
+
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    # A tag can be pushed at any commit, including one that never went through
+    # the Go workflow, so the suite runs again before anything is published.
+    - name: Test
+      run: go test ./...
+
+    - name: Build
+      env:
+        CGO_ENABLED: 0
+      run: |
+        set -euo pipefail
+        mkdir -p dist
+        for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+          GOOS=${target%/*} GOARCH=${target#*/}
+          export GOOS GOARCH
+          name="frameo_${GITHUB_REF_NAME}_${GOOS}_${GOARCH}"
+          bin=frameo
+          [ "$GOOS" = windows ] && bin=frameo.exe
+          go build -trimpath -ldflags=-s -o "dist/$bin" ./cmd/frameo
+          if [ "$GOOS" = windows ]; then
+            (cd dist && zip -q "$name.zip" "$bin")
+          else
+            (cd dist && tar czf "$name.tar.gz" "$bin")
+          fi
+          rm "dist/$bin"
+        done
+        (cd dist && sha256sum * > checksums.txt)
+        ls -l dist
+
+    - name: Publish
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
