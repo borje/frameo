@@ -159,11 +159,3 @@ file to run the tests that actually send one -- they skip without it, since a
 test that sends leaves a photo on a real frame. The `internal/sdg` and
 `internal/mdns` live tests reach Frameo's own grid servers and the local
 network respectively.
-
-## What is left
-
-Sending, listing, downloading, hiding, deleting and the direct local
-connection have all been confirmed against a real frame. What is left is
-mostly what this client does not say for itself — it sends no thumbnail and
-does not identify itself to the frame — along with videos, greeting cards and
-resuming an interrupted transfer.
