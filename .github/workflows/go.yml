@@ -1,0 +1,44 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+# A new push to a branch makes the run already going on it pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+
+    - name: Format
+      run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+    - name: Vet
+      run: go vet ./...
+
+    - name: Build
+      run: go build -v ./...
+
+    # Without -tags live this leaves out the tests that need a real frame or
+    # the grid. -race matters here: the tunnel and the transfers are concurrent.
+    - name: Test
+      run: go test -race -v ./...
