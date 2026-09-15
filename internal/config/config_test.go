@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package config_test
 
 import (
@@ -8,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"frameo/internal/config"
-	"frameo/internal/sdg"
+	"github.com/borje/frameo/internal/config"
+	"github.com/borje/frameo/internal/sdg"
 )
 
 func tempPath(t *testing.T) string {

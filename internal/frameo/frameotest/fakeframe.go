@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Package frameotest provides a stand-in Frameo frame, so the client can be
 // tested end to end without a device.
 //
@@ -11,7 +13,7 @@ import (
 	"fmt"
 	"sync"
 
-	"frameo/internal/frameo/pb"
+	"github.com/borje/frameo/internal/frameo/pb"
 	"google.golang.org/protobuf/proto"
 )
 

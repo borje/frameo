@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Package sdgtest runs the server half of the SecureDeviceGrid protocol in
 // process, so the client can be exercised end to end without touching the
 // network or a real device.

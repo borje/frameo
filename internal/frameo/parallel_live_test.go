@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //go:build live
 
 // These tests answer two questions about a real frame that no decompile does:
@@ -57,10 +59,10 @@ import (
 	"testing"
 	"time"
 
-	"frameo/internal/config"
-	"frameo/internal/frameo"
-	"frameo/internal/mdns"
-	"frameo/internal/sdg"
+	"github.com/borje/frameo/internal/config"
+	"github.com/borje/frameo/internal/frameo"
+	"github.com/borje/frameo/internal/mdns"
+	"github.com/borje/frameo/internal/sdg"
 )
 
 // opener makes one fresh connection to the frame. Each call is a separate

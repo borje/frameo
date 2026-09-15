@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //go:build live
 
 // These tests reach a real frame over the local network rather than through
@@ -17,10 +19,10 @@ import (
 	"testing"
 	"time"
 
-	"frameo/internal/config"
-	"frameo/internal/frameo"
-	"frameo/internal/mdns"
-	"frameo/internal/sdg"
+	"github.com/borje/frameo/internal/config"
+	"github.com/borje/frameo/internal/frameo"
+	"github.com/borje/frameo/internal/mdns"
+	"github.com/borje/frameo/internal/sdg"
 )
 
 // findLocal discovers the paired frame on this network.

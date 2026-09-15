@@ -111,26 +111,44 @@ message says that instead.
 
 The protocol description this is built from was recovered by reverse
 engineering the Frameo Android app. SecureDeviceGrid and the Frameo protocol
-are both proprietary; opensdg, which served as the specification for the
-transport, is GPLv3 and restricted to non-commercial use. This is a
-personal-use interoperability project.
+are both proprietary, and neither is documented; the transport handshake is a
+variant of CurveCP, in the shape CurveZMQ gives it, and the rest was read off
+the app and settled against a real frame. This is an interoperability project:
+it exists because the frames accept photos from nothing but the phone app.
 
 ## Licence
 
-There is no licence file, so this is personal-use work that nobody has been
-given permission to redistribute. That is deliberate rather than an oversight,
-and the constraint is inherited: `internal/sdg` is a port of opensdg, which is
-GPLv3 and non-commercial, so a port of it is a derivative work and publishing
-this would have to be on those terms. The Frameo protocol itself was recovered
-by reverse engineering, which is a separate question again.
+GNU General Public License, version 3 or later. The full text is in `LICENSE`
+and the attributions are in `NOTICE`.
 
-Anyone intending to publish this should settle the licence first, and should
-not assume the paragraph above is legal advice; it is a note about what the
-code is made of.
+The choice was not a free one. `internal/sdg` is a port of the
+[opensdg](https://github.com/Sonic-Amiga/opensdg) C library, which is GPLv3,
+and a port is a derivative work, so the whole program goes out on those terms.
+Everything else it depends on is 3-clause BSD and asks for nothing.
+
+opensdg's README asks that the code not be used commercially. That is not in
+its licence file, and section 7 of the GPL lets a recipient drop such a term,
+so this program does not carry it as a condition -- but `NOTICE` passes the
+request on, because it is the author's and it is reasonable.
+
+Reverse engineering the app is a separate question from the licence, and in
+the EU it has its own answer: article 6 of directive 2009/24/EC allows
+decompiling a program where that is indispensable to make an independently
+written one interoperate with it, and article 8 makes any contract term to the
+contrary void. A photo-sending command line is not "substantially similar in
+its expression" to the phone app, which is the limit article 6 sets.
+
+Frameo is a product of Frameo ApS and SecureDeviceGrid is Trifork's; this
+program is not affiliated with or endorsed by either. None of the above is
+legal advice. It is a note about what the code is made of.
 
 ## Building
 
     go build ./cmd/frameo
+
+or, without a clone,
+
+    go install github.com/borje/frameo/cmd/frameo@latest
 
 Regenerating the protobuf bindings additionally needs `protoc` and
 `protoc-gen-go`, but the generated files are checked in, so an ordinary build

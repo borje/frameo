@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package frameo
 
 import (
@@ -5,7 +7,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"frameo/internal/frameo/frameotest"
+	"github.com/borje/frameo/internal/frameo/frameotest"
 )
 
 // TestImageSizeReadsEveryShapeAFrameSends covers each form a photo has been

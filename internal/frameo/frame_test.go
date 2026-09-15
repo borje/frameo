@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package frameo
 
 import (
@@ -6,7 +8,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"frameo/internal/frameo/pb"
+	"github.com/borje/frameo/internal/frameo/pb"
 	"google.golang.org/protobuf/proto"
 )
 

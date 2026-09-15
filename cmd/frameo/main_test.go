@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package main
 
 import (
@@ -12,11 +14,11 @@ import (
 	"sync"
 	"testing"
 
-	"frameo/internal/config"
-	"frameo/internal/frameo"
-	"frameo/internal/frameo/frameotest"
-	"frameo/internal/frameo/pb"
-	"frameo/internal/sdg/sdgtest"
+	"github.com/borje/frameo/internal/config"
+	"github.com/borje/frameo/internal/frameo"
+	"github.com/borje/frameo/internal/frameo/frameotest"
+	"github.com/borje/frameo/internal/frameo/pb"
+	"github.com/borje/frameo/internal/sdg/sdgtest"
 )
 
 // runCLI drives the command line exactly as main does, and returns what it

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Package frameo is the repository root. It holds only the protobuf code-generation
 // directives; there is no library code here (see internal/... and cmd/frameo).
 //
@@ -7,5 +9,5 @@
 // are checked in, so an ordinary build needs neither tool.
 package frameo
 
-//go:generate protoc --proto_path=internal/sdg/control --go_out=. --go_opt=module=frameo internal/sdg/control/control.proto
-//go:generate protoc --proto_path=internal/frameo/pb --go_out=. --go_opt=module=frameo internal/frameo/pb/frameo.proto internal/frameo/pb/remote_manage.proto
+//go:generate protoc --proto_path=internal/sdg/control --go_out=. --go_opt=module=github.com/borje/frameo internal/sdg/control/control.proto
+//go:generate protoc --proto_path=internal/frameo/pb --go_out=. --go_opt=module=github.com/borje/frameo internal/frameo/pb/frameo.proto internal/frameo/pb/remote_manage.proto

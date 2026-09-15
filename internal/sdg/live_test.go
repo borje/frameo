@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //go:build live
 
 // These tests talk to the real SecureDeviceGrid. Run them with:
@@ -16,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"frameo/internal/sdg"
+	"github.com/borje/frameo/internal/sdg"
 )
 
 func liveOptions(t *testing.T) *sdg.Options {

@@ -4,6 +4,11 @@
 // 	protoc        v3.21.12
 // source: control.proto
 
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// SecureDeviceGrid control-channel messages, matching the control protocol of
+// the opensdg C library (https://github.com/Sonic-Amiga/opensdg), GPLv3.
+
 package control
 
 import (
@@ -864,7 +869,7 @@ const file_control_proto_rawDesc = "" +
 	"\n" +
 	"PairRemote\x12\x0e\n" +
 	"\x02id\x18\x01 \x02(\rR\x02id\x12\x10\n" +
-	"\x03otp\x18\x02 \x02(\tR\x03otpB\x1dZ\x1bframeo/internal/sdg/control"
+	"\x03otp\x18\x02 \x02(\tR\x03otpB.Z,github.com/borje/frameo/internal/sdg/control"
 
 var (
 	file_control_proto_rawDescOnce sync.Once

@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
 // Frameo remote-manage subset, hand-corrected from frameo_full.proto (which was
 // machine-generated from a jadx decompile and emitted repeated message fields as
 // "repeated int32" and cross-file message refs as "bytes" -- both wire-incompatible).
@@ -8,7 +10,7 @@ syntax = "proto3";
 // Verify against a live frame before trusting delete/visibility.
 
 package frameo;
-option go_package = "frameo/internal/frameo/pb";
+option go_package = "github.com/borje/frameo/internal/frameo/pb";
 
 import "frameo.proto";
 

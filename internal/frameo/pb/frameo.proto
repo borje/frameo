@@ -1,12 +1,14 @@
 syntax = "proto3";
 
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
 // Frameo app-layer protocol, reconstructed from net.frameo.app v1.40.5 (jadx).
 // Field numbers/types decoded from GeneratedMessageLite newMessageInfo strings.
 // NOTE: several 64-bit ids are sint64 (zigzag) on the wire — do NOT change to
 // int64 or decoding breaks. Verified against the decompiled info strings.
 
 package frameo;
-option go_package = "frameo/internal/frameo/pb";
+option go_package = "github.com/borje/frameo/internal/frameo/pb";
 
 // ======================================================================
 // Media transfer (the photo-send path)   -- from PBMediaTransfer

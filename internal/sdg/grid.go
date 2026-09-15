@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package sdg
 
 import (
@@ -8,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"frameo/internal/sdg/control"
+	"github.com/borje/frameo/internal/sdg/control"
 	"google.golang.org/protobuf/proto"
 )
 

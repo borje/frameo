@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Package config stores this client's identity and the frames it has paired
 // with.
 package config
@@ -12,7 +14,7 @@ import (
 	"slices"
 	"time"
 
-	"frameo/internal/sdg"
+	"github.com/borje/frameo/internal/sdg"
 )
 
 // Config is the on-disk state. The private key is the client's identity: a

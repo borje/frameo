@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //go:build live
 
 package sdg_test
@@ -7,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"frameo/internal/sdg"
+	"github.com/borje/frameo/internal/sdg"
 )
 
 // TestLiveEveryServerIsFrameo dials each configured grid server on its own and

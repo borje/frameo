@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package frameo_test
 
 import (
@@ -11,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"frameo/internal/frameo"
-	"frameo/internal/frameo/frameotest"
-	"frameo/internal/frameo/pb"
-	"frameo/internal/sdg"
-	"frameo/internal/sdg/sdgtest"
+	"github.com/borje/frameo/internal/frameo"
+	"github.com/borje/frameo/internal/frameo/frameotest"
+	"github.com/borje/frameo/internal/frameo/pb"
+	"github.com/borje/frameo/internal/sdg"
+	"github.com/borje/frameo/internal/sdg/sdgtest"
 	"google.golang.org/protobuf/proto"
 )
 

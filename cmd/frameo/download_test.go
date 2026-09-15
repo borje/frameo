@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package main
 
 import (
@@ -12,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"frameo/internal/frameo/frameotest"
+	"github.com/borje/frameo/internal/frameo/frameotest"
 )
 
 // photoServer serves one photo. What it says the photo is, and what it hands

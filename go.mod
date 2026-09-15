@@ -1,4 +1,4 @@
-module frameo
+module github.com/borje/frameo
 
 go 1.26.0
 

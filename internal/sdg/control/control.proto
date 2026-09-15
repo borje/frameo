@@ -1,7 +1,12 @@
 syntax = "proto2";
 
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// SecureDeviceGrid control-channel messages, matching the control protocol of
+// the opensdg C library (https://github.com/Sonic-Amiga/opensdg), GPLv3.
+
 package sdgcontrol;
-option go_package = "frameo/internal/sdg/control";
+option go_package = "github.com/borje/frameo/internal/sdg/control";
 
 // MSG_FORWARD_REMOTE
 message ForwardRemote

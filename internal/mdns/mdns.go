@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Package mdns browses for DNS-SD services on the local network, which is how
 // a Frameo frame is found for a direct connection.
 //

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //go:build live
 
 // This test browses the real local network. Run it with:
@@ -15,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"frameo/internal/mdns"
+	"github.com/borje/frameo/internal/mdns"
 )
 
 func TestLiveBrowse(t *testing.T) {

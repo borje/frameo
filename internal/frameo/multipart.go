@@ -1,10 +1,12 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package frameo
 
 import (
 	"fmt"
 	"sync"
 
-	"frameo/internal/frameo/pb"
+	"github.com/borje/frameo/internal/frameo/pb"
 	"google.golang.org/protobuf/proto"
 )
 

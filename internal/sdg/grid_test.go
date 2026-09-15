@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package sdg_test
 
 import (
@@ -8,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"frameo/internal/sdg"
-	"frameo/internal/sdg/sdgtest"
+	"github.com/borje/frameo/internal/sdg"
+	"github.com/borje/frameo/internal/sdg/sdgtest"
 )
 
 func testOptions() *sdg.Options {

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Package frameo speaks the message protocol a Frameo photo frame uses over a
 // SecureDeviceGrid connection.
 package frameo

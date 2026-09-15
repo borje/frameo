@@ -4,6 +4,8 @@
 // 	protoc        v3.21.12
 // source: frameo.proto
 
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
 // Frameo app-layer protocol, reconstructed from net.frameo.app v1.40.5 (jadx).
 // Field numbers/types decoded from GeneratedMessageLite newMessageInfo strings.
 // NOTE: several 64-bit ids are sint64 (zigzag) on the wire — do NOT change to
@@ -1454,7 +1456,7 @@ const file_frameo_proto_rawDesc = "" +
 	"\x11encrypted_message\x18\x02 \x01(\tR\x10encryptedMessage\"B\n" +
 	"\vPairingCode\x12!\n" +
 	"\fpairing_code\x18\x01 \x01(\tR\vpairingCode\x12\x10\n" +
-	"\x03ttl\x18\x02 \x01(\x03R\x03ttlB\x1bZ\x19frameo/internal/frameo/pbb\x06proto3"
+	"\x03ttl\x18\x02 \x01(\x03R\x03ttlB,Z*github.com/borje/frameo/internal/frameo/pbb\x06proto3"
 
 var (
 	file_frameo_proto_rawDescOnce sync.Once

@@ -1,9 +1,11 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package frameo
 
 import (
 	"fmt"
 
-	"frameo/internal/frameo/pb"
+	"github.com/borje/frameo/internal/frameo/pb"
 )
 
 // FrameError is a refusal the frame itself reported, as distinct from a failure

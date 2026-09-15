@@ -4,6 +4,8 @@
 // 	protoc        v3.21.12
 // source: remote_manage.proto
 
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
 // Frameo remote-manage subset, hand-corrected from frameo_full.proto (which was
 // machine-generated from a jadx decompile and emitted repeated message fields as
 // "repeated int32" and cross-file message refs as "bytes" -- both wire-incompatible).
@@ -378,7 +380,7 @@ const file_remote_manage_proto_rawDesc = "" +
 	"\x12MediaMetaData_Type\x12\x1e\n" +
 	"\x1aMEDIAMETADATA_TYPE_PICTURE\x10\x00\x12\x1c\n" +
 	"\x18MEDIAMETADATA_TYPE_VIDEO\x10\x01\x12\x1f\n" +
-	"\x1bMEDIAMETADATA_TYPE_GREETING\x10\x02B\x1bZ\x19frameo/internal/frameo/pbb\x06proto3"
+	"\x1bMEDIAMETADATA_TYPE_GREETING\x10\x02B,Z*github.com/borje/frameo/internal/frameo/pbb\x06proto3"
 
 var (
 	file_remote_manage_proto_rawDescOnce sync.Once

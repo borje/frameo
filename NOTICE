@@ -1,0 +1,54 @@
+frameo -- a standalone client for Frameo digital photo frames
+Copyright (C) 2026 Borje Granberg
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option)
+any later version. See the LICENSE file for the full text.
+
+
+Third-party code
+----------------
+
+internal/sdg is a port to Go of the opensdg C library:
+
+    https://github.com/Sonic-Amiga/opensdg
+    Copyright (C) Pavel Fedin
+    Licensed under the GNU General Public License version 3.
+
+opensdg carries no per-file copyright or licence headers; the attribution
+above is taken from that repository's LICENSE.txt and commit history.
+
+Changes made in this port, for the purposes of section 5(a) of the licence:
+
+  - The library was translated from C to Go and restructured around Go's
+    concurrency and error handling. No opensdg source is included here.
+  - The direct local (non-relayed) peer connection is not present in
+    opensdg and was worked out against a real frame.
+  - Only the client side needed by this program was ported; the mainloop,
+    socket and logging layers have no counterpart here.
+
+The test vectors in internal/sdg/reference_test.go were generated against
+opensdg's own packet layouts so that this port could be checked byte for
+byte. They record the wire format of the protocol, not opensdg's code.
+
+The upstream author asks that opensdg not be put to commercial use. That
+request is stated in the opensdg README rather than in its licence, so it is
+passed on here as a request and not as a term of this licence -- adding such
+a term would contradict section 7 of the GNU General Public License.
+
+
+Dependencies
+------------
+
+google.golang.org/protobuf, golang.org/x/crypto, golang.org/x/net and
+golang.org/x/sys are used under the 3-clause BSD licence.
+
+
+Trademarks
+----------
+
+Frameo is a product of Frameo ApS. This project is not affiliated with,
+authorised by, or endorsed by Frameo ApS or by Trifork, who own the
+SecureDeviceGrid network. The name is used only to say which frames the
+program talks to.

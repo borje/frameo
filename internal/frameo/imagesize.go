@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package frameo
 
 // imageSize reads a photo's pixel dimensions out of its own header.

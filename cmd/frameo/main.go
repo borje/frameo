@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Command frameo sends photos to a Frameo digital photo frame.
 package main
 
@@ -15,11 +17,11 @@ import (
 	"strings"
 	"time"
 
-	"frameo/internal/config"
-	"frameo/internal/frameo"
-	"frameo/internal/frameo/pb"
-	"frameo/internal/mdns"
-	"frameo/internal/sdg"
+	"github.com/borje/frameo/internal/config"
+	"github.com/borje/frameo/internal/frameo"
+	"github.com/borje/frameo/internal/frameo/pb"
+	"github.com/borje/frameo/internal/mdns"
+	"github.com/borje/frameo/internal/sdg"
 )
 
 const usage = `frameo sends photos to a Frameo digital photo frame.
