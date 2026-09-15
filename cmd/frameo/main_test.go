@@ -2,13 +2,17 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
+	"frameo/internal/config"
 	"frameo/internal/frameo"
 	"frameo/internal/frameo/frameotest"
 	"frameo/internal/frameo/pb"
@@ -24,8 +28,20 @@ func runCLI(t *testing.T, args ...string) (string, error) {
 	return out.String(), err
 }
 
-// withConfig points the commands at a throwaway configuration file.
+// withConfig points the commands at a throwaway configuration file, already
+// created, since only pairing creates one now.
 func withConfig(t *testing.T) string {
+	t.Helper()
+	path := withNoConfig(t)
+	if _, _, err := config.Create(path); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// withNoConfig names a configuration file that does not exist, for the tests
+// that are about what happens when one is missing.
+func withNoConfig(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.json")
 	t.Setenv("FRAMEO_CONFIG", path)
@@ -59,7 +75,7 @@ func startFakeFrame(t *testing.T, frame *frameotest.Frame) (server, code string)
 	return fmt.Sprintf("%s:%d", grid.Host(), grid.Port()), full
 }
 
-func TestWhoamiCreatesConfig(t *testing.T) {
+func TestWhoamiReportsTheIdentity(t *testing.T) {
 	path := withConfig(t)
 
 	out, err := runCLI(t, "whoami")
@@ -72,11 +88,87 @@ func TestWhoamiCreatesConfig(t *testing.T) {
 
 	st, err := os.Stat(path)
 	if err != nil {
-		t.Fatalf("whoami did not create a configuration: %v", err)
+		t.Fatalf("stat: %v", err)
 	}
 	if perm := st.Mode().Perm(); perm != 0o600 {
 		t.Errorf("configuration permissions are %o, want 600", perm)
 	}
+}
+
+// A missing configuration is a wrong path as often as it is a lost one -- a
+// mistyped -config, a FRAMEO_CONFIG that a cron job does not have -- and the
+// answer to a wrong path is not to become a client no frame has heard of.
+func TestOnlyPairCreatesAnIdentity(t *testing.T) {
+	for _, args := range [][]string{{"whoami"}, {"list"}, {"info"}, {"send", "x.jpg"}, {"frames"}} {
+		t.Run(args[0], func(t *testing.T) {
+			path := withNoConfig(t)
+			_, err := runCLI(t, args...)
+			if err == nil {
+				t.Fatalf("%v succeeded with no configuration", args)
+			}
+			if !strings.Contains(err.Error(), path) {
+				t.Errorf("err = %v, want it to name %s", err, path)
+			}
+			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("%v created a configuration at %s", args, path)
+			}
+		})
+	}
+}
+
+func TestPairCreatesAnIdentityAndSaysSo(t *testing.T) {
+	path := withNoConfig(t)
+	frame := frameotest.New()
+	server, code := startFakeFrame(t, frame)
+
+	stderr := captureStderr(t)
+	if _, err := runCLI(t, "-server", server, "-net", "relay", "pair", code); err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	if got := stderr(); !strings.Contains(got, "created a new identity") || !strings.Contains(got, path) {
+		t.Errorf("pair said %q, want it to report creating an identity at %s", got, path)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("pair did not create a configuration: %v", err)
+	}
+}
+
+// discover browses the network and pairs with nothing, so it is the one
+// command that has no use for an identity and must not mint one.
+func TestDiscoverNeedsNoConfiguration(t *testing.T) {
+	path := withNoConfig(t)
+	if _, err := runCLI(t, "-discover", "10ms", "discover"); err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("discover created a configuration at %s", path)
+	}
+}
+
+// captureStderr collects what the command writes to stderr, which is where the
+// notice about a new identity goes.
+func captureStderr(t *testing.T) func() string {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	var once sync.Once
+	var got string
+	read := func() string {
+		once.Do(func() {
+			os.Stderr = old
+			w.Close()
+			b, _ := io.ReadAll(r)
+			r.Close()
+			got = string(b)
+		})
+		return got
+	}
+	t.Cleanup(func() { read() })
+	return read
 }
 
 func TestNoCommand(t *testing.T) {

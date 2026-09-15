@@ -2,8 +2,10 @@ package config_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"frameo/internal/config"
@@ -15,9 +17,17 @@ func tempPath(t *testing.T) string {
 	return filepath.Join(t.TempDir(), "sub", "config.json")
 }
 
-func TestLoadCreatesAnIdentity(t *testing.T) {
+// create makes a configuration where there is none, which is what pairing
+// does. Load no longer creates one, so the tests that need a fresh identity
+// ask for it.
+func create(path string) (*config.Config, error) {
+	c, _, err := config.Create(path)
+	return c, err
+}
+
+func TestCreateMakesAnIdentity(t *testing.T) {
 	path := tempPath(t)
-	c, err := config.Load(path)
+	c, err := create(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -50,7 +60,7 @@ func TestLoadCreatesAnIdentity(t *testing.T) {
 }
 
 func TestAddAndResolveFrames(t *testing.T) {
-	c, err := config.Load(tempPath(t))
+	c, err := create(tempPath(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +98,7 @@ func TestAddAndResolveFrames(t *testing.T) {
 }
 
 func TestResolveWithNothingPaired(t *testing.T) {
-	c, err := config.Load(tempPath(t))
+	c, err := create(tempPath(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +113,7 @@ func TestResolveWithNothingPaired(t *testing.T) {
 }
 
 func TestAutoNaming(t *testing.T) {
-	c, err := config.Load(tempPath(t))
+	c, err := create(tempPath(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +131,7 @@ func TestAutoNaming(t *testing.T) {
 }
 
 func TestRemoveFrameMovesTheDefault(t *testing.T) {
-	c, err := config.Load(tempPath(t))
+	c, err := create(tempPath(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +154,7 @@ func TestRemoveFrameMovesTheDefault(t *testing.T) {
 
 func TestPairingSurvivesReload(t *testing.T) {
 	path := tempPath(t)
-	c, err := config.Load(path)
+	c, err := create(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +222,7 @@ func indexOf(s, sub string) int {
 // Pairing a frame that is already known must update it, not create a second
 // entry pointing at the same device.
 func TestRepairingTheSameFrame(t *testing.T) {
-	c, err := config.Load(tempPath(t))
+	c, err := create(tempPath(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +246,7 @@ func TestRepairingTheSameFrame(t *testing.T) {
 }
 
 func TestRenamingAFrameDropsTheOldEntry(t *testing.T) {
-	c, err := config.Load(tempPath(t))
+	c, err := create(tempPath(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,5 +263,57 @@ func TestRenamingAFrameDropsTheOldEntry(t *testing.T) {
 	}
 	if _, _, err := c.Resolve(""); err != nil {
 		t.Errorf("the default frame did not follow the rename: %v", err)
+	}
+}
+
+// A missing configuration means one of two different things, and they need
+// different answers: a first run wants an identity created, a lost one wants
+// its file back, because the key it held cannot be recreated.
+func TestMissingTellsAFirstRunFromALostConfiguration(t *testing.T) {
+	t.Setenv("FRAMEO_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	path, err := config.DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(path, os.Getenv("XDG_CONFIG_HOME")) {
+		t.Skip("the user config dir does not follow the environment on this platform")
+	}
+
+	var miss *config.Missing
+	if _, err := config.Load(""); !errors.As(err, &miss) {
+		t.Fatalf("Load of a first run: err = %v, want *config.Missing", err)
+	} else if miss.Orphaned {
+		t.Error("a first run was reported as a lost configuration")
+	}
+
+	if _, _, err := config.Create(""); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := config.Load(""); !errors.As(err, &miss) {
+		t.Fatalf("Load after removal: err = %v, want *config.Missing", err)
+	} else if !miss.Orphaned {
+		t.Error("a configuration that was written and removed was reported as a first run")
+	}
+}
+
+// The directory is evidence only where we own it. A path given with -config
+// sits in a directory that exists for its own reasons and proves nothing, so
+// claiming a key was lost there would be an invention.
+func TestAGivenPathNeverClaimsALostConfiguration(t *testing.T) {
+	_, err := config.Load(filepath.Join(t.TempDir(), "config.json"))
+	var miss *config.Missing
+	if !errors.As(err, &miss) {
+		t.Fatalf("err = %v, want *config.Missing", err)
+	}
+	if miss.Orphaned {
+		t.Error("an existing directory we do not own was read as a lost configuration")
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Error("a missing configuration does not report as os.ErrNotExist")
 	}
 }

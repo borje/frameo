@@ -13,6 +13,7 @@ package frameo_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -30,6 +31,9 @@ func connectLive(t *testing.T) *frameo.Client {
 	t.Helper()
 
 	cfg, err := config.Load("")
+	if errors.Is(err, os.ErrNotExist) {
+		t.Skipf("nothing is paired, so there is no frame to test against: %v", err)
+	}
 	if err != nil {
 		t.Fatalf("reading the configuration: %v", err)
 	}

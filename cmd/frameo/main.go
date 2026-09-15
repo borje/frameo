@@ -58,7 +58,8 @@ Options:
   -fit               fit the whole photo on screen instead of cropping to fill
   -single-segment    send each photo as one message instead of a series
   -timeout <dur>     give up after this long, covering the whole run (default 15m)
-  -config <path>     configuration file (default: under the user config dir)
+  -config <path>     configuration file (default: $FRAMEO_CONFIG, or
+                     frameo/config.json under the user config dir)
   -server <host:port>  use this grid server instead of Frameo's, which also
                      means the relay unless -net says otherwise
   -v                 log the protocol exchange
@@ -94,6 +95,15 @@ saying anything unless -v is given.
 delete removes a photo for good; hide keeps it on the frame and stops it
 being displayed. See internal/frameo/types.go for what is known of the
 protocol, including the one message number still missing.
+
+The configuration file holds a private key, and that key is this client's
+identity: a frame is paired to it, so it cannot be recreated and a frame
+paired to a lost one has to be paired again at the frame itself. Only pair
+creates it. Every other command says where it looked and stops, because a
+configuration that is not there is as often a path this run did not have --
+FRAMEO_CONFIG unset in a cron job, a mistyped -config, another user -- as a
+file that is really gone. Back the file up somewhere encrypted: anyone holding
+it can send and delete photos as this client.
 `
 
 type options struct {
@@ -178,7 +188,7 @@ func run(args []string, stdout io.Writer) error {
 		return fmt.Errorf("unknown command %q", cmdName)
 	}
 
-	cfg, err := config.Load(o.configPath)
+	cfg, err := loadConfig(cmdName, o.configPath)
 	if err != nil {
 		return err
 	}
@@ -219,6 +229,43 @@ func run(args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q", cmd)
 	}
+}
+
+// loadConfig reads the configuration for a command, and decides what a missing
+// one means for that command.
+//
+// Only pair creates an identity, because only pair has a reason to: the key is
+// what the frame is paired to, so minting one is the start of a pairing and
+// not a thing to do on the way to listing photos. Everything else fails
+// instead, which is what turns a mistyped -config or an unset FRAMEO_CONFIG
+// into a message about the path rather than a client the frame does not know.
+// discover needs no identity at all -- it browses the network and pairs with
+// nothing -- so it runs on a configuration that is never written.
+func loadConfig(cmdName, path string) (*config.Config, error) {
+	cfg, err := config.Load(path)
+	var missing *config.Missing
+	if !errors.As(err, &missing) {
+		return cfg, err
+	}
+
+	switch cmdName {
+	case "pair":
+		cfg, was, err := config.Create(path)
+		if err != nil {
+			return nil, err
+		}
+		if was.Orphaned {
+			fmt.Fprintf(os.Stderr, "frameo: created a new identity at %s, replacing the one "+
+				"that was there before: any frame paired with the old identity no longer "+
+				"knows this client and has to be paired again.\n", cfg.Path())
+		} else {
+			fmt.Fprintf(os.Stderr, "frameo: created a new identity at %s\n", cfg.Path())
+		}
+		return cfg, nil
+	case "discover":
+		return config.Unsaved(path), nil
+	}
+	return nil, err
 }
 
 // knownCommands is checked before anything is read or written, so an unknown

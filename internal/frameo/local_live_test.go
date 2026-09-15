@@ -11,6 +11,7 @@ package frameo_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"testing"
@@ -27,6 +28,9 @@ func findLocal(t *testing.T) (sdg.Endpoint, sdg.PeerID, *sdg.Identity, *slog.Log
 	t.Helper()
 
 	cfg, err := config.Load("")
+	if errors.Is(err, os.ErrNotExist) {
+		t.Skipf("nothing is paired, so there is no frame to test against: %v", err)
+	}
 	if err != nil {
 		t.Fatalf("reading the configuration: %v", err)
 	}

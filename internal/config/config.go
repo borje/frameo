@@ -45,27 +45,111 @@ func DefaultPath() (string, error) {
 	return filepath.Join(dir, "frameo", "config.json"), nil
 }
 
-// Load reads the configuration, creating it with a fresh identity if it does
-// not exist yet.
+// Missing reports that there is no configuration at Path. Orphaned
+// distinguishes the two cases that need different answers: a first run, where
+// creating one is right, and a configuration that was written here before and
+// has since gone, where the identity it held is unrecoverable.
+type Missing struct {
+	Path string
+	// Orphaned is set when Path's directory exists. Only Save creates that
+	// directory, so its presence means a configuration was written here once.
+	Orphaned bool
+}
+
+func (m *Missing) Error() string {
+	if m.Orphaned {
+		return fmt.Sprintf("config: no configuration at %s, but its directory exists, "+
+			"so one was written there and has since been removed. The private key it "+
+			"held was this client's identity and cannot be recreated: restore the file "+
+			"from a backup if you have one, or pair again at the frame", m.Path)
+	}
+	return fmt.Sprintf("config: no configuration at %s; run \"frameo pair <code>\" to create one", m.Path)
+}
+
+// Is reports a Missing as os.ErrNotExist, so callers can test for it either way.
+func (m *Missing) Is(target error) bool { return target == os.ErrNotExist }
+
+// missingAt builds the Missing for a path, looking at the directory to tell a
+// first run from a configuration that has been lost.
+//
+// The directory is evidence only where it is ours. Save is the only thing that
+// creates the frameo directory under the user config dir, so finding it without
+// a file in it means one was written and removed. A path given with -config or
+// FRAMEO_CONFIG sits in a directory that exists for its own reasons, and says
+// nothing either way.
+func missingAt(path string) *Missing {
+	m := &Missing{Path: path}
+	dir := filepath.Dir(path)
+	if ours, err := ownedDir(); err != nil || dir != ours {
+		return m
+	}
+	if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+		m.Orphaned = true
+	}
+	return m
+}
+
+// ownedDir is the directory this program creates for itself.
+func ownedDir() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "frameo"), nil
+}
+
+// resolve fills in the default path when none was given.
+func resolve(path string) (string, error) {
+	if path != "" {
+		return path, nil
+	}
+	return DefaultPath()
+}
+
+// Create writes a configuration with a fresh identity, and reports what was
+// there before so the caller can say so. It is for the pairing path alone:
+// the key it generates is what a frame is paired to, and a frame paired to the
+// previous one no longer knows this client.
+func Create(path string) (*Config, *Missing, error) {
+	path, err := resolve(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	was := missingAt(path)
+	id, err := sdg.NewIdentity()
+	if err != nil {
+		return nil, nil, err
+	}
+	c := &Config{PrivateKey: id.Private.String(), Frames: map[string]Frame{}, path: path}
+	if err := c.Save(); err != nil {
+		return nil, nil, err
+	}
+	return c, was, nil
+}
+
+// Unsaved is a configuration that exists only in memory and is never written.
+// It holds no identity, and is for the commands that need none and should
+// still work before anything has been paired.
+func Unsaved(path string) *Config {
+	path, _ = resolve(path)
+	return &Config{Frames: map[string]Frame{}, path: path}
+}
+
+// Load reads the configuration. It never creates one: a missing file is
+// reported as *Missing, because minting a new identity is not a side effect
+// any command but pairing should have. A path that is merely wrong -- a
+// mistyped -config, a FRAMEO_CONFIG set in one shell and not another, a
+// different user, a container without the volume -- then says so, instead of
+// quietly becoming a second client that no frame has ever heard of.
 func Load(path string) (*Config, error) {
-	if path == "" {
-		var err error
-		if path, err = DefaultPath(); err != nil {
-			return nil, err
-		}
+	path, err := resolve(path)
+	if err != nil {
+		return nil, err
 	}
 
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		id, err := sdg.NewIdentity()
-		if err != nil {
-			return nil, err
-		}
-		c := &Config{PrivateKey: id.Private.String(), Frames: map[string]Frame{}, path: path}
-		if err := c.Save(); err != nil {
-			return nil, err
-		}
-		return c, nil
+		return nil, missingAt(path)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)
