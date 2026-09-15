@@ -67,14 +67,41 @@ a whole library over the relay practical. Downloads are named after which copy
 they are, so both can sit in one directory, and `get` prints the dimensions it
 measured off the photo itself -- the frame states them nowhere.
 
+## The configuration file
+
+One file, `frameo/config.json` under the user config directory --
+`$XDG_CONFIG_HOME` or `~/.config` on Linux -- or wherever `$FRAMEO_CONFIG` or
+`-config` points instead. It is written for its owner alone, through a
+temporary file so an interrupted write cannot leave an unusable identity
+behind.
+
+It holds a private key, and that key is not a credential that can be reissued:
+it *is* this client's identity. The public half is the address the frame knows,
+pairing registers it on the frame, and every later connection proves possession
+of the private half. Nothing else stores it and nothing can derive it again.
+
+So a frame paired to a lost key has to be paired again -- and pairing needs the
+code the frame shows on its screen, which means standing in front of it. If the
+frame lives at a relative's house, that is what losing this file costs. Back it
+up, but somewhere encrypted: anyone who holds a copy is this client as far as
+the frame is concerned, and can send and delete photos with it.
+
+Only `pair` creates the file, and it says so when it does. Every other command
+stops and names the path it looked at, because a configuration that is not
+there is as often a path this particular run did not have -- `FRAMEO_CONFIG`
+unset in a cron job, a mistyped `-config`, a different user, a container
+without the volume -- as a file that is really gone, and re-pairing is the
+wrong answer to a wrong path. Where the directory is ours and empty, a
+configuration was written there once and has since been removed, and the
+message says that instead.
+
 ## Layout
 
 - `internal/sdg` speaks SecureDeviceGrid: identity keys, the grid connection,
   pairing, and peer connections both relayed and direct. It is a pure-Go port
   of the [opensdg](https://github.com/Sonic-Amiga/opensdg) C library, verified
   against that implementation's own output byte for byte; the direct local
-  connection is not in opensdg and was worked out against a real frame, as
-  `LOCAL_DIRECT.md` describes.
+  connection is not in opensdg and was worked out against a real frame.
 - `internal/mdns` finds frames on the local network, by browsing for the
   DNS-SD service they advertise.
 - `internal/frameo` speaks the Frameo message protocol that rides on top.
@@ -88,6 +115,19 @@ are both proprietary; opensdg, which served as the specification for the
 transport, is GPLv3 and restricted to non-commercial use. This is a
 personal-use interoperability project.
 
+## Licence
+
+There is no licence file, so this is personal-use work that nobody has been
+given permission to redistribute. That is deliberate rather than an oversight,
+and the constraint is inherited: `internal/sdg` is a port of opensdg, which is
+GPLv3 and non-commercial, so a port of it is a derivative work and publishing
+this would have to be on those terms. The Frameo protocol itself was recovered
+by reverse engineering, which is a separate question again.
+
+Anyone intending to publish this should settle the licence first, and should
+not assume the paragraph above is legal advice; it is a note about what the
+code is made of.
+
 ## Building
 
     go build ./cmd/frameo
@@ -96,11 +136,34 @@ Regenerating the protobuf bindings additionally needs `protoc` and
 `protoc-gen-go`, but the generated files are checked in, so an ordinary build
 does not.
 
+## Testing
+
+    go test ./...
+
+Everything runs offline, against a stand-in frame and a fake grid in
+`internal/frameo/frameotest` and `internal/sdg/sdgtest`. That is the catch: the
+stand-in was built from the same protocol notes as the client, so a mistake in
+those notes passes every offline test. Only a real frame settles a question
+about the protocol.
+
+A second set of tests talks to one, and is kept behind a build tag so an
+ordinary run cannot start pairing or reach the network:
+
+    go test -tags live ./internal/frameo -v    # needs a real paired frame
+    go test -tags live ./internal/sdg -run TestLiveEveryServerIsFrameo
+
+They use the configuration this client already has, so they need a frame paired
+first and powered on; with nothing paired they skip rather than fail. Set
+`FRAMEO_FRAME` to choose between several paired frames, and `FRAMEO_PHOTO` to a
+file to run the tests that actually send one -- they skip without it, since a
+test that sends leaves a photo on a real frame. The `internal/sdg` and
+`internal/mdns` live tests reach Frameo's own grid servers and the local
+network respectively.
+
 ## What is left
 
 Sending, listing, downloading, hiding, deleting and the direct local
 connection have all been confirmed against a real frame. What is left is
 mostly what this client does not say for itself — it sends no thumbnail and
 does not identify itself to the frame — along with videos, greeting cards and
-resuming an interrupted transfer. `NEXT-STEPS.md` lists what remains, what each
-piece is waiting on, and what to ask for.
+resuming an interrupted transfer.
